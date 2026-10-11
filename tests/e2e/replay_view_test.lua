@@ -54,7 +54,7 @@ test("the replay shows sound heard mid-turn that has since faded, and nothing of
 	local first, last = ctx.tick - ctx.turn.length + 1, ctx.tick
 
 	-- A noise contact audible at mid-turn and faded from the live view by now.
-	local mid = first + 360
+	local mid = first + ctx.turn.length / 2
 	local faded
 	for _, contact in ipairs(Perception.at(perception, mid)) do
 		local live = false

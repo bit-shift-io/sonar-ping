@@ -24,6 +24,23 @@ function FrameStepper.step(game, frames)
 	end
 end
 
+-- Plays `ticks` more ticks of execute phase, across turn boundaries: at each
+-- plan phase the player clicks Execute with the plan unchanged (holding its
+-- course), as `game.state:commit()` does. A bare `step` stalls in a plan
+-- phase instead (it runs no ticks there). Errors once the match is over.
+function FrameStepper.play(game, ticks)
+	local target = game.ctx.tick + ticks
+	while game.ctx.tick < target do
+		if game.ctx.result then
+			error("the match is over at tick " .. game.ctx.tick, 2)
+		end
+		if game.ctx.turn.phase == "plan" then
+			game.state:commit()
+		end
+		FrameStepper.step(game, 1)
+	end
+end
+
 function FrameStepper.secondsToFrames(seconds)
 	return math.floor(seconds / DT + 0.5)
 end

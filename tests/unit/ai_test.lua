@@ -63,23 +63,33 @@ test("the AI ignores its own noise: a lone sub sailing on hears no contact to cl
 	assertEqual(0, #ofKind(ctx.turn.queues.enemy, "course"))
 end)
 
-test("after a silent turn the AI's contacts are stale, so it pings", function()
+-- Plays silent turns until `config.ai.staleTicks` have passed with nothing
+-- heard (several turns: staleness is time, not turns).
+local function playUntilStale(ctx)
+	while ctx.tick < Config.ai.staleTicks do
+		assertEqual(0, #ofKind(ctx.turn.queues.enemy, "ping"), "pinged after only " .. ctx.tick .. " silent ticks")
+		playTurn(ctx)
+	end
+end
+
+test("after enough silent turns the AI's contacts are stale, so it pings", function()
 	local ctx = Match.new(level(), Config, 1)
 
-	playTurn(ctx)
+	playUntilStale(ctx)
 
 	assertEqual(1, #ofKind(ctx.turn.queues.enemy, "ping"))
 end)
 
 test("the AI hears echoes of its own ping off the player and closes on them", function()
 	local ctx = Match.new(level(), Config, 1)
-	playTurn(ctx) -- silent: the AI pings in turn 2
+	playUntilStale(ctx) -- the AI pings at the start of the next turn
 
 	playTurn(ctx)
 
 	local courses = ofKind(ctx.turn.queues.enemy, "course")
 	assertEqual(1, #courses)
 	assertEqual("west", courses[1].order.heading)
+	assertEqual(Config.ai.closeSpeed, courses[1].order.speed)
 end)
 
 test("a noisy target inside torpedo range draws a predicted shot", function()

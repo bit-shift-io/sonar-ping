@@ -6,6 +6,7 @@ local Grid = require("src.sim.grid")
 local SubSystem = require("src.game.systems.sub_system")
 local Turn = require("src.game.turn")
 local Orders = require("src.game.orders")
+local Play = require("tests.support.play")
 
 -- Flat seabed at y = 600 (row 151); open water above it.
 local function level(overrides)
@@ -90,9 +91,7 @@ test("a sub ordered to dive stops on the seabed instead of passing through it", 
 	local ctx = executing(lvl)
 	local body = bodyOf(ctx, ctx.pools.subs[1])
 
-	for _ = 1, 600 do
-		Match.step(ctx)
-	end
+	Play.steps(ctx, 600)
 
 	assertTrue(body.blocked)
 	assertFalse(Collide.blocked(ctx.grid, body), "the sub rests in water")
@@ -109,8 +108,8 @@ test("the same seed and starting orders give identical subs after 300 ticks", fu
 	local a, b = executing(level(), 7), executing(level(), 7)
 
 	for _ = 1, 300 do
-		Match.step(a)
-		Match.step(b)
+		Play.advance(a)
+		Play.advance(b)
 	end
 
 	for i = 1, 2 do
@@ -154,9 +153,7 @@ end)
 test("stopped subs are silent: nobody perceives anything", function()
 	local ctx = executingAt("stop")
 
-	for _ = 1, 400 do
-		Match.step(ctx)
-	end
+	Play.steps(ctx, 400)
 
 	assertEqual(0, #Match.perceptionOf(ctx, "player").contacts)
 	assertEqual(0, #Match.perceptionOf(ctx, "enemy").contacts)
@@ -190,7 +187,7 @@ test("the player hears the enemy only after sound has crossed the gap", function
 
 	local first = nil
 	for _ = 1, 400 do
-		Match.step(ctx)
+		Play.advance(ctx)
 		if not first and #Match.perceptionOf(ctx, "player").contacts > 0 then
 			first = ctx.tick
 		end
@@ -256,9 +253,7 @@ test("a ping's echoes return the seabed and the enemy hull to the pinger, not it
 	local enemyBody = bodyOf(ctx, ctx.pools.subs[2])
 	local ex, ey = enemyBody.x / Config.grid.cellSize + 0.5, enemyBody.y / Config.grid.cellSize + 0.5
 
-	for _ = 1, 430 do
-		Match.step(ctx)
-	end
+	Play.steps(ctx, 430)
 
 	local seabed, hull = 0, 0
 	for _, c in ipairs(contactsOfKind(Match.perceptionOf(ctx, "player"), "echo")) do
@@ -279,9 +274,7 @@ test("a spent ping is dropped", function()
 
 	Match.step(ctx)
 	assertEqual(1, #ctx.pings)
-	for _ = 1, 420 do
-		Match.step(ctx)
-	end
+	Play.steps(ctx, 420)
 
 	assertEqual(0, #ctx.pings)
 end)

@@ -37,9 +37,9 @@ local Config = {
 		enemies = 1,
 	},
 
-	-- Turn: the execute phase runs `ticks` fixed steps (720 = 12 s).
+	-- Turn: the execute phase runs `ticks` fixed steps (300 = 5 s).
 	turn = {
-		ticks = 720,
+		ticks = 300,
 	},
 
 	-- Passive perception (docs/CONTEXT.md "Perception", ADR 0002).
@@ -87,7 +87,7 @@ local Config = {
 		maxFuse = 900,
 		defaultFuse = 300,
 		armDistance = 64,
-		blastRadius = 40,
+		blastRadius = 20,
 		launchNoise = 6,
 		blastNoise = 10,
 	},

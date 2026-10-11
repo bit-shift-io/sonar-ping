@@ -42,7 +42,7 @@ local function play(game, turns, commit)
 	return turns
 end
 
-test("on the trench the AI closes on a player holding a slow, steady course and sinks it within three turns", function()
+test("on the trench the AI closes on a player holding a slow, steady course and sinks it within four turns", function()
 	local game = GameHarness.startMatch(Trench, { seed = SEED })
 	local start = distance(game)
 
@@ -51,12 +51,12 @@ test("on the trench the AI closes on a player holding a slow, steady course and 
 		g.state:commit()
 	end
 
-	play(game, 2, commit)
-	assertTrue(distance(game) < start / 3, "the AI closed in over turns 1 and 2")
+	play(game, 3, commit)
+	assertTrue(distance(game) < start / 3, "the AI closed in over turns 1 to 3")
 	play(game, 1, commit)
 
 	assertEqual("enemy", game.ctx.result and game.ctx.result.winner, "the AI sank the player")
-	assertEqual(3, game.ctx.turn.number, "in turn 3")
+	assertEqual(4, game.ctx.turn.number, "in turn 4")
 	assertEqual(1, #enemyLaunches(game), "with its first shot")
 end)
 
@@ -69,26 +69,38 @@ local OPEN = {
 	},
 }
 
--- Full speed, weaving: down then up, then about and down then up, every
--- turn, starting the other way each turn.
-local function weave(turn)
-	local first = turn % 2 == 1 and "east" or "west"
+-- Full speed, weaving in 3 s legs whatever the turn length: down then up,
+-- then about and down then up, starting the other way every four legs.
+local LEG = 180
+
+local function legOrder(leg)
+	local block, within = math.floor(leg / 4), leg % 4
+	local first = block % 2 == 0 and "east" or "west"
 	local second = first == "east" and "west" or "east"
 	local dive = math.rad(12)
-	return {
-		{ tick = 1, order = Orders.course(first, dive, "full") },
-		{ tick = 180, order = Orders.course(first, -dive, "full") },
-		{ tick = 360, order = Orders.course(second, dive, "full") },
-		{ tick = 540, order = Orders.course(second, -dive, "full") },
-	}
+	return Orders.course(within < 2 and first or second, within % 2 == 0 and dive or -dive, "full")
 end
 
-test("a player weaving at full speed makes the AI's straight-line shots miss", function()
-	local game = GameHarness.startMatch(OPEN, { seed = SEED })
+-- The weave's orders for the turn after global tick `start`: the leg in
+-- effect at its tick 1, then each leg that starts within the turn.
+local function weave(start, length)
+	local entries = { { tick = 1, order = legOrder(math.floor(start / LEG)) } }
+	for tick = 2, length do
+		local t = start + tick - 1
+		if t % LEG == 0 then
+			entries[#entries + 1] = { tick = tick, order = legOrder(t / LEG) }
+		end
+	end
+	return entries
+end
 
-	play(game, 3, function(g, turn)
-		Turn.submit(g.ctx, "player", weave(turn))
-	end)
+test("a player weaving at full speed for 40 s makes the AI's straight-line shots miss", function()
+	local game = GameHarness.startMatch(OPEN, { seed = SEED })
+	local turns = math.ceil(40 / (Config.turn.ticks * Config.dt))
+
+	assertEqual(turns, play(game, turns, function(g)
+		Turn.submit(g.ctx, "player", weave(g.ctx.tick, g.ctx.turn.length))
+	end), "every turn ran")
 
 	assertTrue(#enemyLaunches(game) >= 2, "the AI fired at the weaving player")
 	assertEqual(#enemyLaunches(game), #game.ctx.blasts, "every shot ran out")

@@ -22,9 +22,10 @@ test("a blast sinks a sub inside the radius and spares one outside it", function
 	local ctx = Match.new(LEVEL, Config, 1, { ai = false })
 	local player, enemy = subs(ctx)
 
-	Blast.detonate(ctx, 960, 300)
+	-- Half the radius off the enemy's westmost hull cell centre (x = 986).
+	Blast.detonate(ctx, 986 - Config.torpedo.blastRadius / 2, 300)
 
-	assertTrue(enemy.dead, "24 px off the enemy's bow")
+	assertTrue(enemy.dead, "half a radius off the enemy's bow")
 	assertFalse(player.dead, "the player is 740 px away")
 end)
 
@@ -40,8 +41,9 @@ end)
 test("the radius is measured to the nearest hull cell, not the sub's centre", function()
 	local ctx = Match.new(LEVEL, Config, 1, { ai = false })
 	local _, enemy = subs(ctx)
-	-- 50 px from the enemy's centre, 36 px from its nearest hull cell.
-	Blast.detonate(ctx, 950, 300)
+	-- Inside the radius of the nearest hull cell (x = 986), but 10 px beyond
+	-- it measured from the enemy's centre (x = 1000).
+	Blast.detonate(ctx, 986 - (Config.torpedo.blastRadius - 4), 300)
 
 	assertTrue(enemy.dead)
 end)

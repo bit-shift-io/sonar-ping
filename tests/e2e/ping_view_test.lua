@@ -1,6 +1,7 @@
 -- Pinging reveals the seabed outline progressively as echoes return, and the
--- enemy hull as a sharp shape; echoes fade. Both subs are stopped so nothing
--- but the ping makes sound. The test reads true state only to know where to
+-- enemy hull as a sharp shape; echoes fade. Both subs start stopped so
+-- nothing but the ping makes sound until the AI, having heard it, gets under
+-- way in turn 2; the hull is checked before that noise can reach the player. The test reads true state only to know where to
 -- look.
 local GameHarness = require("tests.support.game_harness")
 local FrameStepper = require("tests.support.frame_stepper")
@@ -56,7 +57,9 @@ local RIDGE = { x = 440, y = 384 }
 
 test("echoes reveal the seabed progressively, then the enemy hull as a sharp shape, then fade", function()
 	local game = GameHarness.startMatch(LEVEL, { real = true })
-	local enemy = Bodies.get(game.ctx.bodies, game.ctx.pools.subs[2].bodyId)
+	-- Where the ping strikes the enemy hull (it lies stopped all of turn 1).
+	local body = Bodies.get(game.ctx.bodies, game.ctx.pools.subs[2].bodyId)
+	local enemy = { x = body.x, y = body.y }
 	pingAndExecute(game)
 
 	FrameStepper.step(game, 100)
@@ -69,7 +72,7 @@ test("echoes reveal the seabed progressively, then the enemy hull as a sharp sha
 	game:keypressed("f3")
 	Capture.capture("echoes_returning_debug")
 	game:keypressed("f3")
-	FrameStepper.step(game, 280) -- tick 580
+	FrameStepper.play(game, 250) -- tick 550, into turn 2 (no ping)
 	local hull = render(game)
 	Capture.capture("enemy_hull_echo")
 
@@ -86,9 +89,7 @@ test("echoes reveal the seabed progressively, then the enemy hull as a sharp sha
 		"older echoes are dimmer"
 	)
 
-	-- Next turn, no ping: the first echoes pass the fade time and vanish.
-	FrameStepper.step(game, Config.turn.ticks - 580)
-	game.state:commit()
-	FrameStepper.step(game, 150 + Config.perception.echoFadeTicks - game.ctx.tick)
+	-- Later turns, no ping: the first echoes pass the fade time and vanish.
+	FrameStepper.play(game, 150 + Config.perception.echoFadeTicks - game.ctx.tick)
 	assertEqual(0, greenAround(render(game), BELOW.x, BELOW.y, 24, 10), "faded echoes are gone")
 end)

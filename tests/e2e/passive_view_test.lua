@@ -41,7 +41,7 @@ test("the enemy's noise is dark until sound reaches the player, then glows there
 	FrameStepper.step(game, 120)
 	local before = greenAround(render(game), startX, startY, 140, 40)
 
-	FrameStepper.step(game, 380)
+	FrameStepper.play(game, 380) -- tick 500, into turn 2
 	local after = greenAround(render(game), startX, startY, 140, 40)
 	Capture.capture("passive")
 	game:keypressed("f3")
@@ -62,7 +62,7 @@ test("a stopped enemy is silent in the player's view", function()
 	local game = GameHarness.startMatch(level, { real = true })
 	game.state:commit()
 
-	FrameStepper.step(game, 500)
+	FrameStepper.play(game, 500)
 
 	assertEqual(0, greenAround(render(game), 1160, 400, 140, 40))
 end)

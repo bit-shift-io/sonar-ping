@@ -17,9 +17,11 @@ local function startTurn(orders)
 	return ctx
 end
 
+-- Steps turn 1 to its tick `tick` (1..turn length).
 local function stepTo(ctx, tick)
+	assertTrue(tick <= ctx.turn.length, "tick " .. tick .. " is past the turn")
 	while ctx.turn.tick < tick do
-		Match.step(ctx)
+		assertTrue(Match.step(ctx), "the turn ended before tick " .. tick)
 	end
 end
 
@@ -36,22 +38,23 @@ test("a course order at tick 240 reaches the helm on tick 240, not 239 or 241", 
 	assertEqual("west", helm.heading)
 end)
 
-test("a ping order at tick 360 fires on tick 360 and not before", function()
-	local ctx = startTurn({ { tick = 360, order = Orders.ping() } })
+test("a ping order mid-turn fires on its tick and not before", function()
+	local tick = Config.turn.ticks / 2
+	local ctx = startTurn({ { tick = tick, order = Orders.ping() } })
 
-	stepTo(ctx, 359)
-	assertEqual(0, #ctx.pings, "no ping after tick 359")
-	stepTo(ctx, 360)
+	stepTo(ctx, tick - 1)
+	assertEqual(0, #ctx.pings, "no ping after tick " .. (tick - 1))
+	stepTo(ctx, tick)
 
 	assertEqual(1, #ctx.pings)
-	assertEqual(360, ctx.turn.tick)
+	assertEqual(tick, ctx.turn.tick)
 end)
 
 test("the order log records each order at the tick it was scheduled for", function()
 	local ctx = startTurn({
 		{ tick = 90, order = Orders.ping() },
 		{ tick = 1, order = Orders.course("east", 0, "half") },
-		{ tick = 600, order = Orders.course("west", 0, "slow") },
+		{ tick = Config.turn.ticks, order = Orders.course("west", 0, "slow") },
 	})
 
 	local ticks = {}
@@ -59,5 +62,5 @@ test("the order log records each order at the tick it was scheduled for", functi
 		ticks[i] = entry.tick
 	end
 
-	assertEqual("90,1,600", table.concat(ticks, ","))
+	assertEqual("90,1," .. Config.turn.ticks, table.concat(ticks, ","))
 end)

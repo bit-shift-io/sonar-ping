@@ -6,6 +6,7 @@ local Config = require("src.game.config")
 local Turn = require("src.game.turn")
 local Orders = require("src.game.orders")
 local Bodies = require("src.sim.bodies")
+local Play = require("tests.support.play")
 
 -- Flat seabed at y = 600; both subs stopped (silent) in open water, 800 px apart.
 local function level(overrides)
@@ -31,25 +32,26 @@ local function executing(lvl, playerOrders, enemyOrders)
 	return ctx
 end
 
-local function stepTo(ctx, tick)
-	while ctx.tick < tick do
-		assertTrue(Match.step(ctx), "the match stopped before tick " .. tick)
-	end
-end
+-- One tick of play. Scenarios may outlast a turn: at a plan phase every slot
+-- submits no new orders, so subs hold their course as they would in a game.
+-- Errors rather than spinning once the match is over.
+local advance = Play.advance
+local stepTo = Play.stepTo
 
 -- Steps until a torpedo is launched and then gone; returns the tick it went
 -- and its last position.
 local function runUntilGone(ctx)
 	while #ctx.pools.torpedoes == 0 do
-		assertTrue(Match.step(ctx), "no torpedo was launched")
+		advance(ctx)
 	end
 	local torpedo = ctx.pools.torpedoes[1]
 	local body = Bodies.get(ctx.bodies, torpedo.bodyId)
 	local x, y = body.x, body.y
 	while ctx.pools.torpedoes[1] == torpedo do
 		x, y = body.x, body.y
+		Play.holdCourse(ctx)
 		if not Match.step(ctx) then
-			break
+			break -- the match is over
 		end
 	end
 	return ctx.tick, x, y
@@ -173,7 +175,7 @@ end)
 local function arrivalsUntil(ctx, tick)
 	local arrivals = { player = {}, enemy = {} }
 	while ctx.tick < tick do
-		Match.step(ctx)
+		advance(ctx)
 		for _, sub in ipairs(ctx.pools.subs) do
 			for _, c in ipairs(sub.perception.contacts) do
 				if c.arrivalTick == ctx.tick then
@@ -253,7 +255,7 @@ local function previewAndRun(lvl, course, tick, order)
 	local body = Bodies.get(ctx.bodies, torpedo.bodyId)
 	local run = {}
 	while not torpedo.dead do
-		Match.step(ctx)
+		advance(ctx)
 		run[#run + 1] = { x = body.x, y = body.y }
 	end
 	return preview, run, ctx

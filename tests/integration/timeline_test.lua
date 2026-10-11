@@ -43,17 +43,17 @@ local function entriesOfKind(game, kind)
 	return found
 end
 
-test("a ping placed at 6 s fires on tick 360 from where the ghost path put the sub", function()
+test("a ping placed at 4 s fires on tick 240 from where the ghost path put the sub", function()
 	local game = GameHarness.startMatch(Trench)
 	click(game, centre(game.state:speedButton("full")))
-	placePing(game, 6 * TPS)
-	local projected = game.state.path[6 * TPS]
+	placePing(game, 4 * TPS)
+	local projected = game.state.path[4 * TPS]
 
 	click(game, centre(game.state:executeButton()))
-	FrameStepper.step(game, 6 * TPS)
+	FrameStepper.step(game, 4 * TPS)
 
 	local ping = game.ctx.pings[1]
-	assertEqual(6 * TPS, game.ctx.tick, "the ping fired on the sixth second")
+	assertEqual(4 * TPS, game.ctx.tick, "the ping fired on the fourth second")
 	local cx, cy = SubSystem.centre(game.ctx, game.ctx.pools.subs[1])
 	assertEqual(cx, ping.x)
 	assertEqual(cy, ping.y)
@@ -62,7 +62,7 @@ test("a ping placed at 6 s fires on tick 360 from where the ghost path put the s
 	assertTrue(math.abs((ping.x - 0.5) * size - projected.x) <= size, "ping x within a cell of the projection")
 	assertTrue(math.abs((ping.y - 0.5) * size - projected.y) <= size, "ping y within a cell of the projection")
 	local log = game.ctx.orderLog.entries
-	assertEqual(6 * TPS, log[#log].tick, "the log keeps the scheduled tick")
+	assertEqual(4 * TPS, log[#log].tick, "the log keeps the scheduled tick")
 	assertEqual("ping", log[#log].order.kind)
 end)
 
@@ -83,11 +83,11 @@ test("a placed ping can be dragged along the timeline to another second", functi
 	placePing(game, 2 * TPS)
 
 	local x, y = markerPoint(game, 2 * TPS, "ping")
-	drag(game, x, y, game.state:tickX(9 * TPS), y)
+	drag(game, x, y, game.state:tickX(4 * TPS), y)
 
 	local pings = entriesOfKind(game, "ping")
 	assertEqual(1, #pings)
-	assertEqual(9 * TPS, pings[1].tick)
+	assertEqual(4 * TPS, pings[1].tick)
 end)
 
 test("right-clicking a marker deletes it, but never the standing course", function()
@@ -103,23 +103,23 @@ test("right-clicking a marker deletes it, but never the standing course", functi
 	assertEqual(1, #entriesOfKind(game, "course"), "the tick-1 course stays")
 end)
 
-test("a course change at 5 s: the ghost path bends there, shows a marker, and the sub turns at that tick", function()
+test("a course change at 3 s: the ghost path bends there, shows a marker, and the sub turns at that tick", function()
 	local game = GameHarness.startMatch(Trench)
 	click(game, centre(game.state:speedButton("half")))
 	local straight = game.state.path
 	local straightEnd = straight[#straight].y
 
-	selectTick(game, 5 * TPS)
+	selectTick(game, 3 * TPS)
 	local hx, hy = game.state:handlePosition()
 	drag(game, hx, hy, hx + 40, hy + 60)
 
 	local courses = entriesOfKind(game, "course")
 	assertEqual(2, #courses)
-	assertEqual(5 * TPS, courses[2].tick)
+	assertEqual(3 * TPS, courses[2].tick)
 	assertTrue(courses[2].order.dive > 0, "the new course dives")
 	assertEqual("half", courses[2].order.speed, "it inherits the speed in effect")
 	assertEqual(0, courses[1].order.dive, "the first course is unchanged")
-	assertEqual(straight[5 * TPS - 1].y, game.state.path[5 * TPS - 1].y, "no bend before the order")
+	assertEqual(straight[3 * TPS - 1].y, game.state.path[3 * TPS - 1].y, "no bend before the order")
 	assertTrue(game.state.path[#game.state.path].y > straightEnd, "the ghost path dives after it")
 
 	local planned = game.state.path
@@ -128,7 +128,7 @@ test("a course change at 5 s: the ghost path bends there, shows a marker, and th
 	local body = require("src.sim.bodies").get(game.ctx.bodies, game.ctx.pools.subs[1].bodyId)
 	assertEqual(planned[#planned].x, body.x)
 	assertEqual(planned[#planned].y, body.y)
-	assertEqual(5 * TPS, game.ctx.orderLog.entries[2].tick)
+	assertEqual(3 * TPS, game.ctx.orderLog.entries[2].tick)
 end)
 
 test("a speed button at the selected second schedules a speed change there", function()
@@ -147,7 +147,7 @@ test("the standing course cannot be dragged off tick 1", function()
 	local game = GameHarness.startMatch(Trench)
 
 	local x, y = markerPoint(game, 1, "course")
-	drag(game, x, y, game.state:tickX(7 * TPS), y)
+	drag(game, x, y, game.state:tickX(4 * TPS), y)
 
 	assertEqual(1, entriesOfKind(game, "course")[1].tick)
 end)

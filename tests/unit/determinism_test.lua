@@ -13,9 +13,10 @@ local Trench = require("src.game.levels.trench")
 local SEED = 20261011
 
 -- Mixed orders for the player, including mid-turn orders, pings and a
--- torpedo launch; it runs east over the ridge towards the enemy, noisy. The
--- enemy is the AI, which fills its slot from what it hears each plan phase:
--- it evades the launch, fires back, and sinks the player in turn 3.
+-- torpedo launch; it runs east over the ridge towards the enemy, noisy, then
+-- holds its last course once the plan runs out. The enemy is the AI, which
+-- fills its slot from what it hears each plan phase: it fires back from turn 2
+-- and sinks the player in turn 6.
 local PLAN = {
 	{
 		{ tick = 1, order = Orders.course("east", math.rad(-10), "full") },
@@ -24,14 +25,18 @@ local PLAN = {
 	},
 	{
 		{ tick = 1, order = Orders.course("east", math.rad(-5), "half") },
-		{ tick = 400, order = Orders.course("west", 0, "slow") },
+		{ tick = 200, order = Orders.course("west", 0, "slow") },
 	},
 	{
-		{ tick = 360, order = Orders.course("west", math.rad(-30), "full") },
-		{ tick = 200, order = Orders.ping() },
-		{ tick = 600, order = Orders.ping() },
+		{ tick = 150, order = Orders.course("west", math.rad(-30), "full") },
+		{ tick = 100, order = Orders.ping() },
+		{ tick = 250, order = Orders.ping() },
 	},
 }
+
+-- Bound on the turns a match is played for, so a fixture that stops ending
+-- fails instead of running on.
+local MAX_TURNS = 10
 
 -- An observer's perception as one comparable string: contact count plus an
 -- order-sensitive checksum of every contact.
@@ -78,14 +83,14 @@ local function snapshot(ctx)
 	return table.concat(parts, "|")
 end
 
--- Plays the match until it ends or the plan runs out and returns the
--- snapshot after every tick. `replayLog` nil: the player follows PLAN and the
+-- Plays the match until it ends (or MAX_TURNS) and returns the snapshot
+-- after every tick. `replayLog` nil: the player follows PLAN and the
 -- AI fills the enemy slot. Otherwise both slots replay that order log, with
 -- no AI.
 local function play(replayLog)
 	local ctx = Match.new(Trench, Config, SEED, { ai = replayLog == nil })
 	local snapshots = {}
-	for turn = 1, #PLAN do
+	for turn = 1, MAX_TURNS do
 		if ctx.result then
 			break
 		end
@@ -93,7 +98,7 @@ local function play(replayLog)
 			Turn.submit(ctx, "player", OrderLog.forTurn(replayLog, turn, "player"))
 			Turn.submit(ctx, "enemy", OrderLog.forTurn(replayLog, turn, "enemy"))
 		else
-			Turn.submit(ctx, "player", PLAN[turn])
+			Turn.submit(ctx, "player", PLAN[turn] or {})
 		end
 		while Match.step(ctx) do
 			snapshots[#snapshots + 1] = snapshot(ctx)
@@ -120,8 +125,9 @@ test("a match with the AI active, replayed from its seed and order log, is ident
 	local kinds = enemyOrderKinds(ctx.orderLog)
 	assertTrue((kinds.course or 0) > 0, "the log holds the AI's course orders")
 	assertTrue((kinds.torpedo or 0) > 0, "the log holds the AI's launches")
+	assertTrue(ctx.result ~= nil, "fixture: the match ends")
 	assertEqual("enemy", ctx.result.winner, "fixture: the AI sank the player")
-	assertEqual(3, ctx.turn.number)
+	assertEqual(6, ctx.turn.number)
 	assertEqual(#original, #replayed)
 	for i = 1, #original do
 		assertEqual(original[i], replayed[i], "true state differs at tick " .. i)

@@ -6,7 +6,7 @@ local Predict = require("src.game.predict")
 local Bodies = require("src.sim.bodies")
 local Trench = require("src.game.levels.trench")
 
--- Flat seabed at y = 600; the player sits just above it.
+-- Flat seabed at y = 600; both subs in open water well above it.
 local LEVEL = {
 	seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 	subs = {
@@ -59,7 +59,10 @@ end)
 
 test("the projected path stops at rock where the sub does", function()
 	local orders = { { tick = 1, order = Orders.course("east", math.rad(30), "full") } }
-	local ctx = Match.new(LEVEL, Config, 1, { ai = false })
+	-- The player starts 80 px above the seabed, so a full-speed dive meets it
+	-- well within one turn.
+	local lvl = { seabed = LEVEL.seabed, subs = { player = { x = 200, y = 520, order = LEVEL.subs.player.order }, enemy = LEVEL.subs.enemy } }
+	local ctx = Match.new(lvl, Config, 1, { ai = false })
 
 	local predicted = Predict.path(ctx, "player", orders)
 
@@ -96,9 +99,9 @@ end)
 test("a three-segment plan with a ping among its orders projects exactly what the sim does", function()
 	local orders = {
 		{ tick = 1, order = Orders.course("east", math.rad(10), "half") },
-		{ tick = 360, order = Orders.ping() },
-		{ tick = 200, order = Orders.course("east", math.rad(-20), "full") },
-		{ tick = 480, order = Orders.course("west", math.rad(5), "slow") },
+		{ tick = 150, order = Orders.ping() },
+		{ tick = 100, order = Orders.course("east", math.rad(-20), "full") },
+		{ tick = 200, order = Orders.course("west", math.rad(5), "slow") },
 	}
 	local ctx = Match.new(LEVEL, Config, 1, { ai = false })
 
@@ -107,17 +110,19 @@ test("a three-segment plan with a ping among its orders projects exactly what th
 	assertSamePath(predicted, actualPath(ctx, orders))
 end)
 
-test("a course order at tick 300 leaves the projection before tick 300 untouched", function()
+test("a course order mid-turn leaves the projection before its tick untouched", function()
+	local tick = Config.turn.ticks / 2
+	local last = Config.turn.ticks
 	local ctx = Match.new(LEVEL, Config, 1, { ai = false })
 	local base = { { tick = 1, order = Orders.course("east", 0, "half") } }
-	local changed = { base[1], { tick = 300, order = Orders.course("east", math.rad(25), "full") } }
+	local changed = { base[1], { tick = tick, order = Orders.course("east", math.rad(25), "full") } }
 
 	local before = Predict.path(ctx, "player", base)
 	local after = Predict.path(ctx, "player", changed)
 
-	assertEqual(before[299].x, after[299].x)
-	assertEqual(before[299].y, after[299].y)
-	assertTrue(after[400].y > before[400].y, "the dive shows up after the order")
+	assertEqual(before[tick - 1].x, after[tick - 1].x)
+	assertEqual(before[tick - 1].y, after[tick - 1].y)
+	assertTrue(after[last].y > before[last].y, "the dive shows up after the order")
 end)
 
 test("a path projected from copies of a sub's own body and helm needs only the map and config", function()

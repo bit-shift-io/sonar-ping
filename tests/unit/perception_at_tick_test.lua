@@ -10,7 +10,7 @@ local OBSERVER = { x = 15, y = 10 }
 
 -- Observer listening at (15, 10) from tick 0 to `last`; noise emitted at
 -- (10, 10) on each tick in `emitAt` reaches it five ticks later. Fade 240 for
--- noise, 600 for active returns, an archive of one 720-tick turn plus 600.
+-- noise, 600 for active returns, an archive of 1320 ticks.
 local function listen(emitAt, last, overrides)
 	local grid = Grid.new(100, 40, 4)
 	local history = Emissions.new(Emissions.capacityFor(grid, 1), 1)

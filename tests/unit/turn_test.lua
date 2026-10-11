@@ -23,11 +23,11 @@ local function playerBody(ctx)
 	return Bodies.get(ctx.bodies, ctx.pools.subs[1].bodyId)
 end
 
-test("the default turn length is 720 ticks from config", function()
+test("the default turn length is 300 ticks (5 s) from config", function()
 	local ctx = Match.new(LEVEL, Config, 1, { ai = false })
 
-	assertEqual(720, Config.turn.ticks)
-	assertEqual(720, ctx.turn.length)
+	assertEqual(300, Config.turn.ticks)
+	assertEqual(300, ctx.turn.length)
 end)
 
 test("a match starts in the plan phase of turn 1", function()

@@ -57,7 +57,7 @@ test("the scrubbed view holds the contacts the player's perception held at that 
 	local perception = Match.perceptionOf(game.ctx, "player")
 	openReplay(game)
 
-	scrubTo(game, game.ctx.tick - 360)
+	scrubTo(game, game.ctx.tick - game.ctx.turn.length / 2)
 
 	local view = game.state:replayPerception()
 	local tick = game.state.replay.tick
@@ -74,7 +74,8 @@ test("scrubbing changes neither the sim nor the perception", function()
 	local before = { game.ctx.tick, #perception.contacts, #perception.archive, perception.tick, player.x, player.y, game.ctx.rng.state }
 
 	openReplay(game)
-	for _, offset in ipairs({ 0, 100, 360, 719 }) do
+	local length = game.ctx.turn.length
+	for _, offset in ipairs({ 0, 100, length / 2, length - 1 }) do
 		scrubTo(game, game.ctx.tick - game.ctx.turn.length + 1 + offset)
 	end
 	openReplay(game)
