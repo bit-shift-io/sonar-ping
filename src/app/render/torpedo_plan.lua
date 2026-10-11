@@ -2,7 +2,9 @@
 -- launch point (Predict.torpedo, via PlanState.previews) with a tick mark
 -- where it arms and where it ends (a blast-radius circle where it detonates,
 -- a cross for a dud). The launch being edited also gets its aim point (the
--- clamped point, PlanState:aimPoint) and the chosen speed. Reads only the
+-- clamped point, PlanState:aimPoint) and the chosen speed. Earlier turns'
+-- own torpedoes still running (PlanState.inFlight) draw their projected rest
+-- of run dimmed, like launches not being edited. Reads only the
 -- planning slot's own sub and plan (own-ship knowledge), never the enemy.
 -- Draws in world px; the caller applies the screen fit. No `love.*` at load
 -- time.
@@ -13,6 +15,8 @@ local FUSE = { 1.0, 0.75, 0.3, 1 }
 local AIM = { 1.0, 0.9, 0.3, 1 }
 local DIM = 0.45 -- alpha factor for launches other than the one being edited
 local FUSE_MARK = 7
+local MARKER = { 1, 1, 1, 1 } -- an own torpedo's position at the scrubbed tick
+local MARKER_RADIUS = 4
 
 local function setColor(c, alpha)
 	love.graphics.setColor(c[1], c[2], c[3], c[4] * alpha)
@@ -33,8 +37,8 @@ local function polyline(points, from, to, x, y)
 	end
 end
 
-local function drawLaunch(state, entry, preview, alpha)
-	local lx, ly = state:launchPoint(entry)
+-- A run line from (lx, ly) along `angle`, with its arming and end marks.
+local function drawRun(state, preview, lx, ly, angle, alpha)
 	local points, endTick = preview.points, preview.endTick or #preview.points
 	if not lx or #points == 0 then
 		return
@@ -44,7 +48,7 @@ local function drawLaunch(state, entry, preview, alpha)
 
 	if preview.armedAt and preview.armedAt <= endTick then
 		local a = points[preview.armedAt]
-		local nx, ny = -math.sin(entry.order.angle) * 5, math.cos(entry.order.angle) * 5
+		local nx, ny = -math.sin(angle) * 5, math.cos(angle) * 5
 		setColor(RUN, alpha)
 		love.graphics.line(a.x - nx, a.y - ny, a.x + nx, a.y + ny)
 	end
@@ -60,7 +64,16 @@ local function drawLaunch(state, entry, preview, alpha)
 	end
 end
 
+local function drawLaunch(state, entry, preview, alpha)
+	local lx, ly = state:launchPoint(entry)
+	drawRun(state, preview, lx, ly, entry.order.angle, alpha)
+end
+
 function TorpedoPlan.draw(state)
+	-- Earlier turns' own torpedoes still running: dimmed, never edited.
+	for _, flight in ipairs(state.inFlight) do
+		drawRun(state, flight.preview, flight.x, flight.y, flight.angle, DIM)
+	end
 	for _, entry in ipairs(state.schedule) do
 		local preview = state.previews[entry]
 		if preview and entry ~= state.torpedo then
@@ -76,6 +89,11 @@ function TorpedoPlan.draw(state)
 			love.graphics.circle(state.dragging == "torpedo" and "fill" or "line", ax, ay, 8)
 			love.graphics.print(string.format("%s%s", state.torpedo.order.speed:upper(), dud and "  DUD" or ""), ax + 12, ay - 7)
 		end
+	end
+	-- Each own torpedo in the water at the scrubbed tick, planned or running.
+	love.graphics.setColor(MARKER)
+	for _, t in ipairs(state:torpedoesAt(state.selected)) do
+		love.graphics.circle("fill", t.x, t.y, MARKER_RADIUS)
 	end
 	love.graphics.setColor(1, 1, 1, 1)
 end

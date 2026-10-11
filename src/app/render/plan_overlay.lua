@@ -6,6 +6,7 @@
 -- world px; the caller applies the screen fit. No `love.*` at load time.
 local Timeline = require("src.app.render.timeline")
 local TorpedoPlan = require("src.app.render.torpedo_plan")
+local Helm = require("src.game.components.helm")
 
 local PlanOverlay = {}
 
@@ -17,6 +18,8 @@ local BUTTON_FILL = { 0.1, 0.35, 0.15, 1 }
 local MARK_HALF = 3
 local TARGET_HALF = 7 -- the course target's cross
 local END_RADIUS = 5 -- the achieved end of turn's ring
+local SUB_AT = { 0.3, 1.0, 1.0, 1 } -- the sub's projected position at the scrubbed tick
+local SUB_AT_RADIUS = 5
 
 local function button(rect, label, selected)
 	if selected then
@@ -81,8 +84,17 @@ function PlanOverlay.draw(state)
 		love.graphics.circle("line", sx, sy, 6)
 		love.graphics.line(ax, ay, hx, hy)
 		love.graphics.circle(state.dragging == "course" and "fill" or "line", hx, hy, 8)
+		if state.dragging == "course" or state:courseTarget() then
+			love.graphics.setColor(HANDLE)
+			love.graphics.print(Helm.speedBand(state:course().speed, state.ctx.config), hx + 12, hy - 7)
+		end
 	end
 	TorpedoPlan.draw(state)
+	local at = state.path[state.selected]
+	if at then
+		love.graphics.setColor(SUB_AT)
+		love.graphics.circle("fill", at.x, at.y, SUB_AT_RADIUS)
+	end
 
 	button(state:pingButton(), "PING", state:hasPingAtSelected())
 	local editing = state.torpedo and state.torpedo.order

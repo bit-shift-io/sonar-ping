@@ -2,6 +2,7 @@
 -- Against the idle (orderless, stopped) enemy it sinks it and the match ends.
 -- Mouse coordinates are world px.
 local GameHarness = require("tests.support.game_harness")
+local Timeline = require("src.app.render.timeline")
 local FrameStepper = require("tests.support.frame_stepper")
 local Config = require("src.game.config")
 local Turn = require("src.game.turn")
@@ -100,7 +101,7 @@ test("a torpedo marker selected on the timeline can be re-aimed; clicking its tu
 			marker = entry
 		end
 	end
-	click(game, state:tickX(120), state:timelineRect().y + 22 + 2 * 14)
+	click(game, state:tickX(120), Timeline.rowY("torpedo"))
 	assertEqual(marker, state.torpedo)
 	drag(game, 150, 500, 150, 100)
 	assertTrue(marker.order.angle < -math.pi / 4, "aimed up")

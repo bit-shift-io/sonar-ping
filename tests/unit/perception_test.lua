@@ -209,3 +209,35 @@ test("a moving hull's perceived cells are offset by their individual delays", fu
 	end
 	assertTrue(matched > 10, "expected bow and stern arrivals on the same ticks")
 end)
+
+test("positionAt returns where the observer was at each stepped tick", function()
+	local grid = openGrid()
+	local history = Emissions.new(Emissions.capacityFor(grid, 1), 1)
+	local p = newPerception({ archiveTicks = 100 })
+
+	for tick = 0, 9 do
+		Perception.step(p, history, grid, 10 + tick * 2, 20 - tick, tick)
+	end
+
+	local x, y = Perception.positionAt(p, 3)
+	assertEqual(16, x)
+	assertEqual(17, y)
+	x, y = Perception.positionAt(p, 9)
+	assertEqual(28, x)
+	assertEqual(11, y)
+end)
+
+test("positions older than archiveTicks are trimmed", function()
+	local grid = openGrid()
+	local history = Emissions.new(Emissions.capacityFor(grid, 1), 1)
+	local p = newPerception({ archiveTicks = 5 })
+
+	for tick = 0, 20 do
+		Perception.step(p, history, grid, 10 + tick, 20, tick)
+	end
+
+	assertEqual(nil, Perception.positionAt(p, 14))
+	local x = Perception.positionAt(p, 15)
+	assertEqual(25, x)
+	assertEqual(6, #p.positions)
+end)

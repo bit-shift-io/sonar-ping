@@ -6,6 +6,7 @@ local GameHarness = require("tests.support.game_harness")
 local FrameStepper = require("tests.support.frame_stepper")
 local Capture = require("tests.support.capture")
 local Config = require("src.game.config")
+local Timeline = require("src.app.render.timeline")
 local Trench = require("src.game.levels.trench")
 
 -- Trench seabed; the enemy is moved up level with the player, in open water
@@ -124,4 +125,26 @@ test("a torpedo's track draws blue beside a moving sub's green track", function(
 	local w, h = frame:getDimensions()
 	assertTrue(dominantPixels(frame, 0, 0, w - 1, h - 1, "b") > 0, "the torpedo's contacts draw blue")
 	assertTrue(dominantPixels(frame, 0, 0, w - 1, h - 1, "g") > 0, "the sub's contacts draw green")
+end)
+
+test("scrubbing the plan shows the sub and the planned torpedo at that tick", function()
+	local game = GameHarness.startMatch(LEVEL, { real = true })
+	local state = game.state
+
+	click(game, centre(state:tubeButton(1)))
+	drag(game, 700, 500, 520, 300)
+	local preview = state:torpedoPreview()
+	local k = math.floor(preview.endTick / 2)
+	local tick = state.selected + k
+	local y = Timeline.rowY("ping")
+	click(game, state:tickX(tick), y)
+
+	local frame = render(game)
+	Capture.capture("plan_scrub_torpedo")
+	local p = preview.points[k]
+	local r, g, b = frame:getPixel(math.floor(p.x), math.floor(p.y))
+	assertTrue(r > 0.9 and g > 0.9 and b > 0.9, "the torpedo marker sits on its run line at the scrubbed tick")
+	local s = state.path[state.selected]
+	local sr, sg, sb = frame:getPixel(math.floor(s.x), math.floor(s.y))
+	assertTrue(sg > 0.9 and sb > 0.9 and sr < 0.6, "the sub marker sits on the projected path")
 end)

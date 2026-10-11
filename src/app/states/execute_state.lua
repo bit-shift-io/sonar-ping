@@ -4,6 +4,9 @@
 -- match-end screen (render/match_end).
 local Match = require("src.game.match")
 local MatchEnd = require("src.app.render.match_end")
+local OrderLog = require("src.game.order_log")
+local Timeline = require("src.app.render.timeline")
+local PlanOverlay = require("src.app.render.plan_overlay")
 
 local ExecuteState = {}
 ExecuteState.__index = ExecuteState
@@ -11,7 +14,19 @@ ExecuteState.__index = ExecuteState
 local TEXT = { 0.6, 1.0, 0.6, 1 }
 
 function ExecuteState.new(ctx, slot)
-	return setmetatable({ phase = "execute", ctx = ctx, slot = slot, accumulator = 0 }, ExecuteState)
+	return setmetatable({
+		phase = "execute",
+		ctx = ctx,
+		slot = slot,
+		accumulator = 0,
+		-- The player's committed orders for this turn, read once; own slot only.
+		entries = OrderLog.forTurn(ctx.orderLog, ctx.turn.number, slot),
+	}, ExecuteState)
+end
+
+-- The timeline cursor: the turn tick, from tick 1 (the tick is 0 before the first step).
+function ExecuteState:cursorTick()
+	return math.max(1, self.ctx.turn.tick)
 end
 
 -- Returns the next state once the turn is over, else nil.
@@ -47,6 +62,7 @@ function ExecuteState:draw()
 		16,
 		24
 	)
+	Timeline.draw(self.entries, turn.length, PlanOverlay.ticksPerSecond(self), self:cursorTick())
 	love.graphics.setColor(1, 1, 1, 1)
 end
 

@@ -65,6 +65,42 @@ function Predict.pathFrom(world, ownBody, ownHelm, entries, length)
 	return path
 end
 
+-- Runs torpedo `body` (a private copy) and its record `torpedo` (a copy:
+-- launchTick, fuse, startX, startY, armed) the way TorpedoSystem.update does,
+-- for the ticks after global tick `now`: up to `limit` ticks, past the end of
+-- the run, or (no `limit`) only until the run ends. Hulls aside.
+local function run(world, body, torpedo, now, limit)
+	local config = world.config
+	local store = Bodies.new()
+	Bodies.add(store, body)
+	local wasArmed = torpedo.armed
+	local preview = { points = {} }
+	local k = 0
+	while (limit and k < limit) or (not limit and not preview.ends) do
+		k = k + 1
+		Integrate.step(store, config.dt)
+		Collide.resolve(store, world.grid)
+		preview.points[k] = { x = body.x, y = body.y }
+		if not preview.ends then
+			TorpedoSystem.arm(torpedo, body, config)
+			if torpedo.armed and not wasArmed and not preview.armedAt then
+				preview.armedAt = k
+			end
+			local ended = TorpedoSystem.runEnd(torpedo, body, now + k)
+			if ended then
+				preview.ends, preview.endTick = ended, k
+				if torpedo.armed then
+					preview.detonation = { x = body.x, y = body.y }
+				end
+			end
+		end
+		if body.blocked then
+			break
+		end
+	end
+	return preview
+end
+
 -- The run of torpedo order `order` launched from world point (x, y) (the
 -- launching sub's position after its launch tick, e.g. Predict.path's point
 -- for that tick). Hulls are unknown to a plan, so contact with them is not
@@ -78,34 +114,21 @@ end
 --   detonation `{ x, y }` where it detonates, or nil for a dud.
 function Predict.torpedo(world, x, y, order)
 	local config = world.config
-	local store = Bodies.new()
 	local body = TorpedoSystem.newBody(x, y, order, config)
-	Bodies.add(store, body)
 	local torpedo = { launchTick = 0, fuse = order.fuse, startX = x, startY = y, armed = false }
-	local preview = { points = {} }
+	return run(world, body, torpedo, 0, config.torpedo.speeds[order.speed].maxRun)
+end
 
-	for k = 1, config.torpedo.speeds[order.speed].maxRun do
-		Integrate.step(store, config.dt)
-		Collide.resolve(store, world.grid)
-		preview.points[k] = { x = body.x, y = body.y }
-		if not preview.ends then
-			TorpedoSystem.arm(torpedo, body, config)
-			if torpedo.armed and not preview.armedAt then
-				preview.armedAt = k
-			end
-			local ended = TorpedoSystem.runEnd(torpedo, body, k)
-			if ended then
-				preview.ends, preview.endTick = ended, k
-				if torpedo.armed then
-					preview.detonation = { x = body.x, y = body.y }
-				end
-			end
-		end
-		if body.blocked then
-			break
-		end
-	end
-	return preview
+-- The rest of the run of own torpedo `torpedo` (a ctx.pools.torpedoes record
+-- still running at plan start), from its body's current state, as the
+-- execute phase after global tick ctx.tick takes it. Fuse and arming carry
+-- over (`launchTick` keeps the fuse counted from the launch, so the run ends
+-- on the sim's tick). Same shape as Predict.torpedo, with ticks counted from
+-- plan start and points stopping where the run ends; `armedAt` is nil if it
+-- was armed already. Reads copies; changes nothing in ctx.
+function Predict.torpedoInFlight(ctx, torpedo)
+	local body = copy(Bodies.get(ctx.bodies, torpedo.bodyId))
+	return run(ctx, body, copy(torpedo), ctx.tick)
 end
 
 return Predict

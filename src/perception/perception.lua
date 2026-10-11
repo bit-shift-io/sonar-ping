@@ -27,6 +27,9 @@ function Perception.new(opts)
 		-- Every contact that arrived within archiveTicks, in arrival order
 		-- (the live contacts are its unexpired tail). Only `at` reads it.
 		archive = {},
+		-- The observer's own position at each tick stepped within
+		-- archiveTicks, oldest first: { tick, x, y }. Own ship only.
+		positions = {},
 		tick = nil, -- last tick stepped
 		x = nil, -- observer position at the last step
 		y = nil,
@@ -82,6 +85,40 @@ local function trimArchive(perception, now)
 	for i = n - stale + 1, n do
 		archive[i] = nil
 	end
+end
+
+-- Drops recorded positions older than archiveTicks (a prefix, like the archive).
+local function trimPositions(perception, now)
+	local positions, limit = perception.positions, perception.archiveTicks
+	local n, stale = #positions, 0
+	while stale < n and now - positions[stale + 1].tick > limit do
+		stale = stale + 1
+	end
+	if stale == 0 then
+		return
+	end
+	for i = 1, n - stale do
+		positions[i] = positions[i + stale]
+	end
+	for i = n - stale + 1, n do
+		positions[i] = nil
+	end
+end
+
+-- Where the observer was at past `tick` (x, y in cells), or nil if that tick
+-- was not stepped or has aged out of archiveTicks.
+function Perception.positionAt(perception, tick)
+	local positions = perception.positions
+	for i = #positions, 1, -1 do
+		local p = positions[i]
+		if p.tick == tick then
+			return p.x, p.y
+		end
+		if p.tick < tick then
+			break
+		end
+	end
+	return nil
 end
 
 -- The contacts the perception held at past `tick`: arrived by then and not yet
@@ -153,6 +190,9 @@ function Perception.step(perception, history, grid, x, y, now)
 	perception.tick, perception.x, perception.y = now, x, y
 	forget(perception, now)
 	if archiving then
+		local positions = perception.positions
+		positions[#positions + 1] = { tick = now, x = x, y = y }
+		trimPositions(perception, now)
 		trimArchive(perception, now)
 	end
 end

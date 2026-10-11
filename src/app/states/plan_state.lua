@@ -19,7 +19,8 @@
 -- REPLAY (once there is a last turn) opens a modal scrubber over the strip:
 -- click or drag it to see the player's perception at each tick of the last
 -- execute phase (`replay.tick`, a global tick); planning input is inert until
--- REPLAY closes it again. Mouse coordinates are world px; the
+-- REPLAY closes it again. The strip then shows the last turn's orders,
+-- read-only. Mouse coordinates are world px; the
 -- caller undoes the screen fit. Logic is pure; drawing is in
 -- render/plan_overlay, render/torpedo_plan and render/timeline.
 local Bodies = require("src.sim.bodies")
@@ -33,6 +34,7 @@ local PlanOverlay = require("src.app.render.plan_overlay")
 local Timeline = require("src.app.render.timeline")
 local Replay = require("src.app.render.replay")
 local Match = require("src.game.match")
+local OrderLog = require("src.game.order_log")
 
 local PlanState = {}
 PlanState.__index = PlanState
@@ -60,6 +62,26 @@ local function subForSlot(ctx, slot)
 	return nil
 end
 
+-- The rest of the run of each of `slot`'s own torpedoes still in the water at
+-- plan start, as `{ torpedo, preview, x, y, angle }` (Predict.torpedoInFlight;
+-- x, y, angle: where it is at plan start, where its run line starts). Own-ship
+-- knowledge only (ADR 0002): ctx.pools.torpedoes is read here filtered by
+-- `owner == slot` and nowhere else; enemy torpedoes are never looked at.
+local function ownTorpedoesInFlight(ctx, slot)
+	local flights = {}
+	for _, torpedo in ipairs(ctx.pools.torpedoes) do
+		if torpedo.owner == slot and not torpedo.dead then
+			local body = Bodies.get(ctx.bodies, torpedo.bodyId)
+			flights[#flights + 1] = {
+				torpedo = torpedo,
+				preview = Predict.torpedoInFlight(ctx, torpedo),
+				x = body.x, y = body.y, angle = body.angle,
+			}
+		end
+	end
+	return flights
+end
+
 -- `slot` is the slot this screen plans for ("player").
 function PlanState.new(ctx, slot)
 	local sub = subForSlot(ctx, slot)
@@ -80,6 +102,9 @@ function PlanState.new(ctx, slot)
 		moving = nil, -- the schedule entry being dragged along the timeline
 		torpedo = nil, -- the torpedo launch entry being edited
 		aims = {}, -- torpedo entry -> { x, y }: the aim point dragged to, as asked
+		-- Earlier turns' own torpedoes still running, projected once per plan
+		-- phase: the plan cannot change them.
+		inFlight = ownTorpedoesInFlight(ctx, slot),
 	}, PlanState)
 	self:replan()
 	return self
@@ -300,6 +325,12 @@ function PlanState:replayButton()
 	return { x = execute.x - BUTTON_GAP - REPLAY_W, y = BUTTON_Y, w = REPLAY_W, h = BUTTON_H }
 end
 
+-- The PLAY/PAUSE button sits left of REPLAY/CLOSE.
+function PlanState:playButton()
+	local replay = self:replayButton()
+	return { x = replay.x - BUTTON_GAP - REPLAY_W, y = BUTTON_Y, w = REPLAY_W, h = BUTTON_H }
+end
+
 -- There is a last turn to replay from turn 2 on.
 function PlanState:replayAvailable()
 	return self.ctx.turn.number > 1
@@ -326,8 +357,39 @@ function PlanState:toggleReplay()
 		self.replay = nil
 	elseif self:replayAvailable() then
 		self.dragging, self.moving = false, nil
-		self.replay = { tick = (self:replayRange()) }
+		-- Last turn's orders for this slot, read once; drawn read-only on the strip.
+		self.replay = {
+			tick = (self:replayRange()),
+			entries = OrderLog.forTurn(self.ctx.orderLog, self.ctx.turn.number - 1, self.slot),
+		}
 	end
+end
+
+-- The last turn's orders as `{ tick, order }` entries, while replaying.
+function PlanState:replayPlaying()
+	return self.replay ~= nil and self.replay.playing
+end
+
+function PlanState:playLabel()
+	return self:replayPlaying() and "PAUSE" or "PLAY"
+end
+
+-- Plays from the scrubbed tick (from the first, if it is on the last), or pauses.
+function PlanState:togglePlay()
+	local replay = self.replay
+	if replay.playing then
+		replay.playing = false
+		return
+	end
+	local first, last = self:replayRange()
+	if replay.tick >= last then
+		replay.tick = first
+	end
+	replay.playing, replay.accumulator = true, 0
+end
+
+function PlanState:replayEntries()
+	return self.replay and self.replay.entries
 end
 
 function PlanState:scrubTo(x)
@@ -362,6 +424,35 @@ end
 -- submitted theirs, so the turn executes.
 function PlanState:commit()
 	Turn.submit(self.ctx, self.slot, self:orders())
+end
+
+-- The own torpedoes in the water at `tick`: each planned launch as `{ entry,
+-- x, y }` from its launch tick (the launch point) until its run ends, and
+-- each earlier turn's torpedo still running as `{ flight, x, y }` (a
+-- self.inFlight item) until its run ends.
+function PlanState:torpedoesAt(tick)
+	local found = {}
+	for _, flight in ipairs(self.inFlight) do
+		local p = tick >= 1 and tick <= (flight.preview.endTick or #flight.preview.points) and flight.preview.points[tick]
+		if p then
+			found[#found + 1] = { flight = flight, x = p.x, y = p.y }
+		end
+	end
+	for _, entry in ipairs(self.schedule) do
+		local preview = self.previews[entry]
+		local k = tick - entry.tick
+		if preview and k >= 0 and k <= (preview.endTick or #preview.points) then
+			local x, y
+			if k == 0 then
+				x, y = self:launchPoint(entry)
+			else
+				local p = preview.points[k]
+				x, y = p.x, p.y
+			end
+			found[#found + 1] = { entry = entry, x = x, y = y }
+		end
+	end
+	return found
 end
 
 -- The preview of the launch being edited, or nil.
@@ -438,6 +529,7 @@ local function timelinePress(self, x, y, button)
 		end
 	else
 		self.selected = Timeline.tickAt(x, length)
+		self.scrubbing = true
 	end
 end
 
@@ -448,7 +540,10 @@ function PlanState:mousepressed(x, y, button)
 	if self.replay then
 		if button == 1 and inside(self:replayButton(), x, y) then
 			self:toggleReplay()
+		elseif button == 1 and inside(self:playButton(), x, y) then
+			self:togglePlay()
 		elseif button == 1 and Timeline.contains(x, y) then
+			self.replay.playing = false
 			self.replay.scrubbing = true
 			self:scrubTo(x)
 		end
@@ -501,6 +596,8 @@ function PlanState:mousemoved(x, y)
 		self:aimTorpedo(x, y)
 	elseif self.moving then
 		self:move(self.moving, Timeline.tickAt(x, self.ctx.turn.length))
+	elseif self.scrubbing then
+		self.selected = Timeline.tickAt(x, self.ctx.turn.length)
 	end
 end
 
@@ -512,6 +609,7 @@ function PlanState:mousereleased(x, y, button)
 		self.dragging = false
 		self.solver = nil
 		self.moving = nil
+		self.scrubbing = false
 	end
 end
 
@@ -522,6 +620,19 @@ function PlanState:update(dt)
 		local nextState = ExecuteState.new(self.ctx, self.slot)
 		return nextState:update(dt) or nextState
 	end
+	local replay = self.replay
+	if replay and replay.playing then
+		local _, last = self:replayRange()
+		local step = self.ctx.config.dt
+		replay.accumulator = replay.accumulator + dt
+		while replay.accumulator >= step and replay.tick < last do
+			replay.accumulator = replay.accumulator - step
+			replay.tick = replay.tick + 1
+		end
+		if replay.tick >= last then
+			replay.playing = false
+		end
+	end
 	return nil
 end
 
@@ -529,8 +640,11 @@ function PlanState:draw()
 	if self.replay then
 		local first, last = self:replayRange()
 		local label = string.format("TURN %d  REPLAY  %.1f s", self.ctx.turn.number - 1, (self.replay.tick - first + 1) * self.ctx.config.dt)
-		Replay.drawBar(self:timelineRect(), self:scrubX(self.replay.tick), label)
+		local cursor = self.replay.tick - first + 1
+		Timeline.draw(self.replay.entries, self.ctx.turn.length, PlanOverlay.ticksPerSecond(self), cursor)
+		Replay.drawLabel(label)
 		PlanOverlay.drawButton(self:replayButton(), "CLOSE", true)
+		PlanOverlay.drawButton(self:playButton(), self:playLabel(), true)
 		return
 	end
 	PlanOverlay.draw(self)

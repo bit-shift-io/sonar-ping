@@ -130,3 +130,17 @@ test("Orders.validate rejects a course speed that is not a number", function()
 	assertFalse(Orders.validate(Orders.course("east", 0, 0 / 0), Config), "NaN")
 	assertFalse(Orders.validate(Orders.course("east", 0, nil), Config), "missing")
 end)
+
+test("the speed band label names the nearest speed setting and the solved speed", function()
+	assertEqual("HALF 45", Helm.speedBand(45, Config))
+	assertEqual("HALF 33", Helm.speedBand(33, Config))
+	assertEqual("FULL 80", Helm.speedBand(80, Config))
+end)
+
+test("a stopped sub is labelled STOP", function()
+	assertEqual("STOP", Helm.speedBand(0, Config))
+end)
+
+test("a speed exactly between two settings takes the slower one", function()
+	assertEqual("SLOW 33", Helm.speedBand(32.5, Config))
+end)

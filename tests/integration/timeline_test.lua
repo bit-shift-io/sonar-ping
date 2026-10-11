@@ -2,6 +2,7 @@
 -- orders, edit the course at a chosen second, and watch the orders execute at
 -- their scheduled ticks. Mouse coordinates are world px.
 local GameHarness = require("tests.support.game_harness")
+local Timeline = require("src.app.render.timeline")
 local FrameStepper = require("tests.support.frame_stepper")
 local Config = require("src.game.config")
 local SubSystem = require("src.game.systems.sub_system")
@@ -87,8 +88,7 @@ test("a ping placed at 4 s fires on tick 240 from where the ghost path put the s
 end)
 
 local function markerPoint(game, tick, kind)
-	local style = require("src.app.render.timeline").KINDS[kind]
-	return game.state:tickX(tick), game.state:timelineRect().y + 22 + style.row * 14
+	return game.state:tickX(tick), Timeline.rowY(kind)
 end
 
 local function drag(game, fromX, fromY, toX, toY)
@@ -203,4 +203,40 @@ test("the standing course cannot be dragged off tick 1", function()
 	drag(game, x, y, game.state:tickX(4 * TPS), y)
 
 	assertEqual(1, entriesOfKind(game, "course")[1].tick)
+end)
+
+test("dragging across the empty strip scrubs the selected tick with the mouse", function()
+	local game = GameHarness.startMatch(Trench)
+	local y = Timeline.rowY("ping")
+
+	game:mousepressed(game.state:tickX(2 * TPS), y, 1)
+	game:mousemoved(game.state:tickX(4 * TPS), y)
+	assertEqual(4 * TPS, game.state.selected, "selected follows the mouse mid-drag")
+	game:mousemoved(game.state:tickX(3 * TPS), y)
+	game:mousereleased(game.state:tickX(3 * TPS), y, 1)
+	assertEqual(3 * TPS, game.state.selected)
+
+	game:mousemoved(game.state:tickX(5 * TPS), y)
+	assertEqual(3 * TPS, game.state.selected, "release ends the scrub")
+	assertEqual(0, #entriesOfKind(game, "ping"), "scrubbing places nothing")
+end)
+
+test("the torpedoes in the water at the scrubbed tick sit on their run line", function()
+	local game = GameHarness.startMatch(Trench)
+	selectTick(game, 2 * TPS)
+	click(game, centre(game.state:tubeButton(1)))
+	local entry = game.state.torpedo
+	local preview = game.state.previews[entry]
+
+	assertEqual(0, #game.state:torpedoesAt(2 * TPS - 1), "nothing before launch")
+	local atLaunch = game.state:torpedoesAt(2 * TPS)
+	local lx, ly = game.state:launchPoint(entry)
+	assertEqual(lx, atLaunch[1].x, "the launch tick is the launch point")
+	assertEqual(ly, atLaunch[1].y)
+	local mid = game.state:torpedoesAt(2 * TPS + 10)
+	assertEqual(preview.points[10].x, mid[1].x)
+	assertEqual(preview.points[10].y, mid[1].y)
+	local last = preview.endTick or #preview.points
+	assertEqual(1, #game.state:torpedoesAt(2 * TPS + last))
+	assertEqual(0, #game.state:torpedoesAt(2 * TPS + last + 1), "gone after the run ends")
 end)

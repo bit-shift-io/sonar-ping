@@ -5,6 +5,7 @@ local GameHarness = require("tests.support.game_harness")
 local FrameStepper = require("tests.support.frame_stepper")
 local Bodies = require("src.sim.bodies")
 local Config = require("src.game.config")
+local OrderLog = require("src.game.order_log")
 local Trench = require("src.game.levels.trench")
 
 local function centre(rect)
@@ -174,4 +175,38 @@ test("the plan starts fresh each turn: no ping carries over", function()
 
 	assertEqual("plan", game.state.phase)
 	assertFalse(game.state:hasPingAtSelected())
+end)
+
+test("the execute screen's timeline holds the player's committed orders and its cursor follows the turn tick", function()
+	local game = GameHarness.startMatch(Trench)
+	local state = game.state
+	state.selected = 120
+	state:togglePing()
+	state.selected = 200
+	state:toggleTorpedo(1)
+	click(game, centre(state:executeButton()))
+	FrameStepper.step(game, Config.turn.ticks / 2)
+
+	local execute = game.state
+	assertEqual("execute", execute.phase)
+	local planned = OrderLog.forTurn(game.ctx.orderLog, game.ctx.turn.number, "player")
+	assertEqual(#planned, #execute.entries)
+	for i, entry in ipairs(planned) do
+		assertEqual(entry.tick, execute.entries[i].tick)
+		assertEqual(entry.order, execute.entries[i].order)
+	end
+	local kinds = {}
+	for _, entry in ipairs(execute.entries) do
+		kinds[entry.order.kind] = true
+	end
+	assertTrue(kinds.ping and kinds.torpedo, "the planned ping and launch are on the strip")
+	for _, logged in ipairs(game.ctx.orderLog.entries) do
+		if logged.slot ~= "player" then
+			for _, entry in ipairs(execute.entries) do
+				assertTrue(entry.order ~= logged.order, "no AI order on the strip")
+			end
+		end
+	end
+	assertEqual(game.ctx.turn.tick, execute:cursorTick())
+	assertTrue(execute:cursorTick() > 1, "the cursor has moved off the start")
 end)

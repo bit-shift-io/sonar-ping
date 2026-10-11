@@ -71,8 +71,16 @@ Domain terms for Sonar Ping. Code, docs, and conversation use these words with t
 - **Boundary:** The only way humans and AI affect the sim. Recorded for replay.
 
 ## Timeline
-- **Definition:** The turn's ticks shown as a strip in the plan phase, holding scheduled orders.
-- **Boundary:** Planning UI only. The sim sees orders, not the timeline.
+- **Definition:** The turn's ticks shown as a strip, holding the player's orders. Shown in the plan phase, the execute phase and the replay.
+- **Boundary:** UI only. Editable only in the plan phase. The sim sees orders, not the timeline.
+
+## Scrub cursor
+- **Definition:** The tick a timeline view points at. In the plan phase it selects where edits apply and shows own sub and own torpedoes projected to that tick.
+- **Boundary:** Shows own-ship knowledge only. Never moves the sim.
+
+## Replay
+- **Definition:** The plan-phase view of the last execute phase, built from the player's perception alone. Scrubbed by hand or played back at real speed.
+- **Boundary:** Read-only. Shows contacts and own-ship position as they stood at the replayed tick; never true state.
 
 ## Tube
 - **Definition:** A torpedo launcher on a sub, with a reload time.

@@ -3,6 +3,7 @@
 -- mid-turn, and the replay never shows true state (even with F3 on).
 -- Captures frames at the start, middle and end of a replay.
 local GameHarness = require("tests.support.game_harness")
+local Timeline = require("src.app.render.timeline")
 local FrameStepper = require("tests.support.frame_stepper")
 local Capture = require("tests.support.capture")
 local Match = require("src.game.match")
@@ -47,7 +48,7 @@ local function greenAround(data, x, y, half)
 end
 
 local function scrubTo(game, tick)
-	click(game, game.state:scrubX(tick), game.state:timelineRect().y + 30)
+	click(game, game.state:scrubX(tick), Timeline.rowY("course"))
 end
 
 test("the replay shows sound heard mid-turn that has since faded, and nothing of true state", function()
@@ -100,4 +101,47 @@ test("the replay shows sound heard mid-turn that has since faded, and nothing of
 		local r2, g2, b2 = debugData:getPixel(math.floor(p[1]), math.floor(p[2]))
 		assertTrue(r1 == r2 and g1 == g2 and b1 == b2, "F3 changes nothing during a replay")
 	end
+end)
+
+test("the replay strip shows last turn's ping marker at its tick", function()
+	local game = GameHarness.startMatch(Trench, { real = true })
+	local sx, sy = game.state:subPosition()
+	steer(game, sx + 800, sy)
+	click(game, game.state:tickX(4 * 60), game.state:timelineRect().y + 24)
+	click(game, centre(game.state:pingButton()))
+	game.state:commit()
+	FrameStepper.step(game, game.ctx.turn.length)
+
+	click(game, centre(game.state:replayButton()))
+	local length = game.ctx.turn.length
+	local mx, my = Timeline.tickX(4 * 60, length), Timeline.rowY("ping")
+	Capture.capture("replay_markers")
+
+	local data = render(game)
+	local best = 0
+	for px = math.floor(mx) - 3, math.floor(mx) + 3 do
+		for py = math.floor(my) - 3, math.floor(my) + 3 do
+			local _, g = data:getPixel(px, py)
+			best = math.max(best, g)
+		end
+	end
+	assertTrue(best > 0.5, "the replay strip draws the ping marker at tick 240")
+end)
+
+test("the replay plays at real speed and the button reads PAUSE while it does", function()
+	local game = GameHarness.startMatch(Trench, { real = true })
+	local sx, sy = game.state:subPosition()
+	steer(game, sx + 800, sy)
+	game.state:commit()
+	FrameStepper.step(game, game.ctx.turn.length)
+	click(game, centre(game.state:replayButton()))
+	local first = game.state:replayRange()
+	Capture.capture("replay_paused")
+
+	click(game, centre(game.state:playButton()))
+	FrameStepper.step(game, 90)
+
+	assertEqual("PAUSE", game.state:playLabel())
+	assertEqual(first + 90, game.state.replay.tick)
+	Capture.capture("replay_playing")
 end)

@@ -28,6 +28,34 @@ function Helm.noise(speed, config)
 	return below.noise + (above.noise - below.noise) * t
 end
 
+-- Label for a course at `speed`: the nearest config.speeds band and the speed
+-- itself, e.g. "HALF 33". A stopped course is just "STOP". Ties go to the
+-- slower band (speeds are walked in ascending order, strictly-nearer wins).
+function Helm.speedBand(speed, config)
+	local names = {}
+	for name in pairs(config.speeds) do
+		names[#names + 1] = name
+	end
+	table.sort(names, function(a, b)
+		local sa, sb = config.speeds[a].speed, config.speeds[b].speed
+		if sa ~= sb then
+			return sa < sb
+		end
+		return a < b
+	end)
+
+	local best
+	for _, name in ipairs(names) do
+		if not best or math.abs(config.speeds[name].speed - speed) < math.abs(config.speeds[best].speed - speed) then
+			best = name
+		end
+	end
+	if config.speeds[best].speed == 0 then
+		return "STOP"
+	end
+	return string.format("%s %d", best:upper(), math.floor(speed + 0.5))
+end
+
 function Helm.apply(helm, order, config)
 	helm.heading = order.heading
 	helm.dive = order.dive

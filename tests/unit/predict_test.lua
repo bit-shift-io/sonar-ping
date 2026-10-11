@@ -138,3 +138,78 @@ test("a path projected from copies of a sub's own body and helm needs only the m
 	assertSamePath(Predict.path(ctx, "player", orders), projected)
 	assertEqual(body.x, own.x, "the copies are left as they were")
 end)
+
+-- Turn 1 launches a slow torpedo east from tick `launch` with fuse `fuse` and
+-- runs to the turn-2 plan phase; returns the match and the torpedo running.
+local function inFlightAtPlan(launch, fuse)
+	local ctx = Match.new(LEVEL, Config, 1, { ai = false })
+	Turn.submit(ctx, "player", { { tick = launch, order = Orders.torpedo(1, 0, "slow", fuse) } })
+	Turn.submit(ctx, "enemy", {})
+	while Match.step(ctx) do
+	end
+	assertEqual("plan", ctx.turn.phase, "turn 2 plans")
+	return ctx, ctx.pools.torpedoes[1]
+end
+
+-- Runs turn 2 with no new orders; the torpedo's position after each tick
+-- while it runs, the tick of the turn it went (nil if it outlasts it) and the
+-- tick it armed (nil if it was armed already or never arms).
+local function runOn(ctx, torpedo)
+	Turn.submit(ctx, "player", {})
+	Turn.submit(ctx, "enemy", {})
+	local body = Bodies.get(ctx.bodies, torpedo.bodyId)
+	local points, gone, armedAt, k = {}, nil, nil, 0
+	local wasArmed = torpedo.armed
+	while Match.step(ctx) do
+		k = k + 1
+		if torpedo.armed and not wasArmed and not armedAt then
+			armedAt = k
+		end
+		if torpedo.dead then
+			gone = gone or k
+		end
+		if not gone or gone == k then
+			points[k] = { x = body.x, y = body.y }
+		end
+	end
+	return points, gone, armedAt
+end
+
+test("a torpedo still running at plan start is projected where the sim takes it", function()
+	local ctx, torpedo = inFlightAtPlan(Config.turn.ticks - 50, 120)
+
+	local projected = Predict.torpedoInFlight(ctx, torpedo)
+
+	local actual = runOn(ctx, torpedo)
+	assertEqual(#actual, #projected.points, "run lengths")
+	for k = 1, #actual do
+		assertEqual(actual[k].x, projected.points[k].x, "x at tick " .. k)
+		assertEqual(actual[k].y, projected.points[k].y, "y at tick " .. k)
+	end
+end)
+
+test("a torpedo armed last turn detonates on the tick its fuse runs out, as in the sim", function()
+	local ctx, torpedo = inFlightAtPlan(Config.turn.ticks - 50, 120)
+	assertTrue(torpedo.armed, "armed before plan start")
+
+	local projected = Predict.torpedoInFlight(ctx, torpedo)
+
+	local actual, gone = runOn(ctx, torpedo)
+	assertEqual(120 - 50, gone, "the sim's fuse tick")
+	assertEqual(gone, projected.endTick)
+	assertEqual("fuse", projected.ends)
+	assertEqual(actual[gone].x, projected.detonation.x)
+	assertEqual(actual[gone].y, projected.detonation.y)
+end)
+
+test("a torpedo not yet armed at plan start arms on the way and detonates at its fuse", function()
+	local ctx, torpedo = inFlightAtPlan(Config.turn.ticks - 10, 60)
+	assertTrue(not torpedo.armed, "still inside the arming distance at plan start")
+
+	local projected = Predict.torpedoInFlight(ctx, torpedo)
+
+	local actual, gone, armedAt = runOn(ctx, torpedo)
+	assertEqual(armedAt, projected.armedAt, "arms on the sim's tick")
+	assertEqual(gone, projected.endTick)
+	assertEqual(actual[gone].x, projected.detonation.x)
+end)

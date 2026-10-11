@@ -7,17 +7,19 @@ local Timeline = {}
 
 -- World px. The strip spans the screen width less a margin, and is tall
 -- enough for three rows (course, ping, torpedo).
-Timeline.X, Timeline.Y, Timeline.W, Timeline.H = 16, 646, 1248, 62
-local ROW_TOP, ROW_STEP = 22, 14 -- first row's centre below the strip top; row spacing
-local HIT_X, HIT_Y = 6, 7 -- marker grab half-size
+Timeline.X, Timeline.Y, Timeline.W, Timeline.H = 16, 668, 1248, 36
+local ROW_TOP, ROW_STEP = 18, 7 -- first row's centre below the strip top (clear of the second labels); row spacing
+local HIT_X, HIT_Y = 4, 3 -- marker grab half-size
 
--- Per order kind: `row` (0-based line on the strip), `glyph` (letter in the
--- strip), `ghost(x, y)` (marker drawn on the ghost path at the order's
+-- Per order kind: `row` (0-based line on the strip), `shape(mode, x, y)` (the
+-- small marker on the strip), `ghost(x, y)` (marker drawn on the ghost path at the order's
 -- position), `color`.
 Timeline.KINDS = {
 	course = {
 		row = 0,
-		glyph = "C",
+		shape = function(mode, x, y)
+			love.graphics.polygon(mode, x, y - 3, x + 3, y, x, y + 3, x - 3, y)
+		end,
 		color = { 1.0, 0.9, 0.3, 1 },
 		ghost = function(x, y)
 			love.graphics.polygon("line", x, y - 6, x + 6, y, x, y + 6, x - 6, y)
@@ -25,7 +27,9 @@ Timeline.KINDS = {
 	},
 	ping = {
 		row = 1,
-		glyph = "P",
+		shape = function(mode, x, y)
+			love.graphics.circle(mode, x, y, 3)
+		end,
 		color = { 0.5, 0.9, 1.0, 1 },
 		ghost = function(x, y)
 			love.graphics.circle("line", x, y, 6)
@@ -35,7 +39,9 @@ Timeline.KINDS = {
 	-- Both tubes share the row; a launch is drawn where the sub fires it.
 	torpedo = {
 		row = 2,
-		glyph = "T",
+		shape = function(mode, x, y)
+			love.graphics.polygon(mode, x, y - 3, x + 3, y + 3, x - 3, y + 3)
+		end,
 		color = { 1.0, 0.45, 0.3, 1 },
 		ghost = function(x, y)
 			love.graphics.polygon("line", x, y - 7, x + 6, y + 5, x - 6, y + 5)
@@ -62,7 +68,8 @@ function Timeline.contains(x, y)
 	return x >= Timeline.X and x <= Timeline.X + Timeline.W and y >= Timeline.Y and y <= Timeline.Y + Timeline.H
 end
 
-local function rowY(kind)
+-- Screen y of the centre of `kind`'s row on the strip.
+function Timeline.rowY(kind)
 	return Timeline.Y + ROW_TOP + Timeline.KINDS[kind].row * ROW_STEP
 end
 
@@ -73,7 +80,7 @@ function Timeline.markerAt(entries, length, x, y)
 		local entry = entries[i]
 		local style = Timeline.KINDS[entry.order.kind]
 		if style then
-			local mx, my = Timeline.tickX(entry.tick, length), rowY(entry.order.kind)
+			local mx, my = Timeline.tickX(entry.tick, length), Timeline.rowY(entry.order.kind)
 			if math.abs(x - mx) <= HIT_X and math.abs(y - my) <= HIT_Y then
 				return i
 			end
@@ -118,10 +125,9 @@ function Timeline.draw(entries, length, ticksPerSecond, selected, moving)
 	for _, entry in ipairs(entries) do
 		local style = Timeline.KINDS[entry.order.kind]
 		if style then
-			local x, y = Timeline.tickX(entry.tick, length), rowY(entry.order.kind)
+			local x, y = Timeline.tickX(entry.tick, length), Timeline.rowY(entry.order.kind)
 			love.graphics.setColor(style.color)
-			love.graphics.rectangle(entry == moving and "fill" or "line", x - 5, y - 6, 10, 12)
-			love.graphics.print(style.glyph, x - 3, y - 7)
+			style.shape(entry == moving and "fill" or "line", x, y)
 		end
 	end
 end

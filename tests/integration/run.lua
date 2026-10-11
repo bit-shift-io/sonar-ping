@@ -6,6 +6,7 @@ local defaultTestFiles = {
 	"tests/integration/turn_cycle_test.lua",
 	"tests/integration/timeline_test.lua",
 	"tests/integration/torpedo_hit_test.lua",
+	"tests/integration/torpedo_in_flight_test.lua",
 	"tests/integration/ai_duel_test.lua",
 	"tests/integration/replay_test.lua",
 }
