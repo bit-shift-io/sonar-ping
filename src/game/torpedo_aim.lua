@@ -1,43 +1,24 @@
--- Torpedo aim point (planning UI only; docs/CONTEXT.md "Aim point"). Turns the
--- point a player drags a launch to into a torpedo order: the angle points at
--- it, the speed is fast within the fast range and else slow, and the fuse is
--- the run time to the point. A point beyond the slow range clamps to it along
--- the same angle. The sim never sees the point, only the order. Pure; no
--- `love.*`.
-local Orders = require("src.game.orders")
+-- Torpedo aim point (planning UI; docs/CONTEXT.md "Aim point"). Turns the
+-- point a player drags a launch to into a torpedo order whose run (out of the
+-- tube, the turn onto its angle, then straight) detonates there: fast when
+-- the fast run reaches the point, else slow. A point the run cannot reach
+-- (beyond the slow range, or inside the turning circle) clamps to the
+-- nearest point of the run. The solve is Predict.aim. The sim never sees the
+-- point, only the order. Pure; no `love.*`.
+local Predict = require("src.game.predict")
 
 local TorpedoAim = {}
 
-local atan2 = math.atan2 or math.atan
-
--- Distance a torpedo covers at speed `name` over its max run, in px.
-local function range(config, name)
-	local s = config.torpedo.speeds[name]
-	return s.speed * config.dt * s.maxRun
-end
-
--- The launch from tube `tube` at launch point (lx, ly) aimed at (tx, ty).
--- Returns `{ order, x, y, dud }`: the torpedo order, the (clamped) aim point
--- it detonates at, and whether that is inside the arming distance (a dud).
--- A point on the launch point aims east.
-function TorpedoAim.solve(world, tube, lx, ly, tx, ty)
-	local config = world.config
-	local dx, dy = tx - lx, ty - ly
-	local distance = math.sqrt(dx * dx + dy * dy)
-	local angle = (dx == 0 and dy == 0) and 0 or atan2(dy, dx)
-	local speed = distance <= range(config, "fast") and "fast" or "slow"
-	local slowRange = range(config, "slow")
-	if distance > slowRange then
-		distance = slowRange
+-- The launch from tube `tube` of a sub at `pose` (`{ x, y, angle }`: its pose
+-- at the launch tick) aimed at (tx, ty). Returns `{ order, x, y, dud }`: the
+-- torpedo order, the (clamped) point it detonates at, and whether that is
+-- inside the arming distance of the launch point (a dud).
+function TorpedoAim.solve(world, tube, pose, tx, ty)
+	local fast = Predict.aim(world, tube, pose, tx, ty, "fast")
+	if fast.reachable then
+		return fast
 	end
-	local s = config.torpedo.speeds[speed]
-	local fuse = math.max(1, math.min(s.maxRun, math.floor(distance / (s.speed * config.dt) + 0.5)))
-	return {
-		order = Orders.torpedo(tube, angle, speed, fuse),
-		x = lx + distance * math.cos(angle),
-		y = ly + distance * math.sin(angle),
-		dud = distance < config.torpedo.armDistance,
-	}
+	return Predict.aim(world, tube, pose, tx, ty, "slow")
 end
 
 return TorpedoAim

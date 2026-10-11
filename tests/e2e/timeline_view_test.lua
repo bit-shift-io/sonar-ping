@@ -89,3 +89,46 @@ test("mid-execute the strip shows the committed ping and the cursor at the turn 
 	end
 	assertTrue(bright > 1.0, "the cursor line is drawn at the turn tick")
 end)
+
+-- Bright pixels in a box: something is drawn there.
+local function brightAround(data, x, y, half)
+	local best = 0
+	for py = math.max(0, math.floor(y - half)), math.min(719, math.floor(y + half)) do
+		for px = math.max(0, math.floor(x - half)), math.min(1279, math.floor(x + half)) do
+			local r, g, b = data:getPixel(px, py)
+			best = math.max(best, r + g + b)
+		end
+	end
+	return best
+end
+
+test("on turn 2 the one strip shows the cursor at -4 s, 0 and +3 s, with the projected sub only on the right", function()
+	local game = GameHarness.startMatch(Trench, { real = true })
+	local state = game.state
+	local sx, sy = state:subPosition()
+	steer(game, sx + 800, sy)
+	state:commit()
+	FrameStepper.step(game, game.ctx.turn.length)
+	state = game.state
+	sx, sy = state:subPosition()
+	steer(game, sx + 800, sy)
+	local length, y = game.ctx.turn.length, Timeline.Y + 10 -- above the marker rows
+	assertEqual(nil, state.replayButton, "there is no REPLAY button")
+
+	local frames = {}
+	for _, at in ipairs({ { "timeline_minus_4s", -240 }, { "timeline_0s", 0 }, { "timeline_plus_3s", 180 } }) do
+		click(game, Timeline.tickX(at[2], length), y)
+		assertEqual(at[2], state.selected)
+		Capture.capture(at[1])
+		frames[at[1]] = render(game)
+	end
+
+	for name, tick in pairs({ timeline_minus_4s = -240, timeline_0s = 0, timeline_plus_3s = 180 }) do
+		local data = frames[name]
+		local cx = Timeline.tickX(tick, length)
+		assertTrue(brightAround(data, cx, Timeline.Y + Timeline.H - 2, 1) > 1.0, name .. ": the cursor line is drawn")
+	end
+	local px, py = state.path[180].x, state.path[180].y
+	assertTrue(brightAround(frames.timeline_plus_3s, px, py, 2) > 0.8, "+3 s marks the sub's projected position")
+	assertTrue(brightAround(frames.timeline_minus_4s, px, py, 2) < brightAround(frames.timeline_plus_3s, px, py, 2), "-4 s shows no plan overlay there")
+end)

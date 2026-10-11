@@ -9,8 +9,8 @@ local Turn = require("src.game.turn")
 local Orders = require("src.game.orders")
 local MatchEnd = require("src.app.render.match_end")
 
--- Flat seabed at y = 600. The player is stopped facing west, away from the
--- enemy, so the default launch angle (along the hull) points the wrong way.
+-- Flat seabed at y = 600. The player is stopped facing west, its stern
+-- towards the enemy; the enemy faces west too, its bow towards the player.
 local LEVEL = {
 	seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 	subs = {
@@ -48,15 +48,15 @@ test("a torpedo planned with the mouse at the idle enemy sinks it and ends the m
 	local game = GameHarness.startMatch(LEVEL)
 	local state = game.state
 
-	click(game, centre(state:tubeButton(1)))
-	drag(game, 700, 500, 500, 300) -- one drag onto the enemy
+	click(game, centre(state:tubeButton(2)))
+	drag(game, 700, 500, 500, 300) -- one drag onto the enemy, astern
 	local preview = state:torpedoPreview()
 	assertNear(500, preview.detonation.x, 4, "the preview detonates at the aim point")
 	click(game, centre(state:executeButton()))
 
 	local log = game.ctx.orderLog.entries
 	assertEqual("torpedo", log[2].order.kind)
-	assertEqual(1, log[2].order.tube)
+	assertEqual(2, log[2].order.tube, "the stern tube")
 	assertEqual(1, log[2].tick)
 	assertNear(0, log[2].order.angle, 1e-9)
 	assertEqual("fast", log[2].order.speed, "300 px is within fast range")
@@ -74,7 +74,7 @@ end)
 test("an enemy launch at the player sinks it and the match ends in a loss", function()
 	local game = GameHarness.startMatch(LEVEL)
 	-- The enemy's orders arrive through the same Turn.submit an AI will use.
-	Turn.submit(game.ctx, "enemy", { { tick = 1, order = Orders.torpedo(2, math.pi, "fast", 160) } })
+	Turn.submit(game.ctx, "enemy", { { tick = 1, order = Orders.torpedo(1, math.pi, "fast", 160) } })
 	click(game, centre(game.state:executeButton()))
 
 	FrameStepper.step(game, Config.turn.ticks)

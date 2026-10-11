@@ -1,7 +1,8 @@
--- Scrubbing the last turn in the plan phase shows the player's perception as
--- it stood at each tick: sound that has faded from the live view is back at
--- mid-turn, and the replay never shows true state (even with F3 on).
--- Captures frames at the start, middle and end of a replay.
+-- Scrubbing the timeline's left half in the plan phase shows the player's
+-- perception as it stood at each tick of the last execute phase: sound that
+-- has faded from the live view is back at mid-turn, and the replay never shows
+-- true state (even with F3 on). Captures frames at the start, middle and end
+-- of the left half.
 local GameHarness = require("tests.support.game_harness")
 local Timeline = require("src.app.render.timeline")
 local FrameStepper = require("tests.support.frame_stepper")
@@ -47,8 +48,9 @@ local function greenAround(data, x, y, half)
 	return best
 end
 
+-- Clicks the strip at global `tick` of the last execute phase.
 local function scrubTo(game, tick)
-	click(game, game.state:scrubX(tick), Timeline.rowY("course"))
+	click(game, Timeline.tickX(tick - game.ctx.tick, game.ctx.turn.length), Timeline.rowY("course"))
 end
 
 test("the replay shows sound heard mid-turn that has since faded, and nothing of true state", function()
@@ -80,7 +82,6 @@ test("the replay shows sound heard mid-turn that has since faded, and nothing of
 	local px, py = (faded.x - 0.5) * ctx.grid.cellSize, (faded.y - 0.5) * ctx.grid.cellSize
 	local liveGreen = greenAround(render(game), px, py, 6)
 
-	click(game, centre(game.state:replayButton()))
 	scrubTo(game, first)
 	Capture.capture("replay_start")
 	scrubTo(game, mid)
@@ -93,7 +94,7 @@ test("the replay shows sound heard mid-turn that has since faded, and nothing of
 	Capture.capture("replay_end")
 
 	assertTrue(midGreen > liveGreen + 0.1, "the faded sound glows again at mid-turn: " .. liveGreen .. " -> " .. midGreen)
-	-- Debug draws current true state; hidden during a replay, the frame is unchanged.
+	-- Debug draws current true state; hidden on the left half, the frame is unchanged.
 	scrubTo(game, mid)
 	local again = render(game)
 	for _, p in ipairs({ { 100, 100 }, { 640, 360 }, { px, py } }) do
@@ -103,7 +104,7 @@ test("the replay shows sound heard mid-turn that has since faded, and nothing of
 	end
 end)
 
-test("the replay strip shows last turn's ping marker at its tick", function()
+test("the left half shows last turn's ping marker at its tick", function()
 	local game = GameHarness.startMatch(Trench, { real = true })
 	local sx, sy = game.state:subPosition()
 	steer(game, sx + 800, sy)
@@ -112,9 +113,8 @@ test("the replay strip shows last turn's ping marker at its tick", function()
 	game.state:commit()
 	FrameStepper.step(game, game.ctx.turn.length)
 
-	click(game, centre(game.state:replayButton()))
 	local length = game.ctx.turn.length
-	local mx, my = Timeline.tickX(4 * 60, length), Timeline.rowY("ping")
+	local mx, my = Timeline.tickX(Timeline.pastTick(4 * 60, length), length), Timeline.rowY("ping")
 	Capture.capture("replay_markers")
 
 	local data = render(game)
@@ -125,23 +125,22 @@ test("the replay strip shows last turn's ping marker at its tick", function()
 			best = math.max(best, g)
 		end
 	end
-	assertTrue(best > 0.5, "the replay strip draws the ping marker at tick 240")
+	assertTrue(best > 0.3, "the strip draws last turn's ping marker on the left half")
 end)
 
-test("the replay plays at real speed and the button reads PAUSE while it does", function()
+test("PLAY runs the cursor at real speed from the left half into the plan, reading PAUSE while it does", function()
 	local game = GameHarness.startMatch(Trench, { real = true })
 	local sx, sy = game.state:subPosition()
 	steer(game, sx + 800, sy)
 	game.state:commit()
 	FrameStepper.step(game, game.ctx.turn.length)
-	click(game, centre(game.state:replayButton()))
-	local first = game.state:replayRange()
+	scrubTo(game, game.ctx.tick - 60)
 	Capture.capture("replay_paused")
 
 	click(game, centre(game.state:playButton()))
 	FrameStepper.step(game, 90)
 
 	assertEqual("PAUSE", game.state:playLabel())
-	assertEqual(first + 90, game.state.replay.tick)
+	assertEqual(30, game.state.selected)
 	Capture.capture("replay_playing")
 end)

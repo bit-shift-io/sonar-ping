@@ -42,7 +42,7 @@ local function play(game, turns, commit)
 	return turns
 end
 
-test("on the trench the AI closes on a player holding a slow, steady course and sinks it within four turns", function()
+test("on the trench the AI closes on a player holding a slow, steady course and sinks it within five turns", function()
 	local game = GameHarness.startMatch(Trench, { seed = SEED })
 
 	-- The unchanged plan each turn: the starting course, slow east.
@@ -54,10 +54,13 @@ test("on the trench the AI closes on a player holding a slow, steady course and 
 	play(game, 1, commit)
 	assertTrue(distance(game) < start, "the AI closed in over turn 1")
 	assertEqual(0, #enemyLaunches(game), "with nothing heard yet it holds fire in turn 1")
-	play(game, 3, commit)
+	-- Its first (bow) shot misses; the bow tube then reloads for four turns
+	-- and the stern tube cannot turn onto a target dead ahead until the
+	-- range closes, so the follow-up comes in turn 5.
+	play(game, 4, commit)
 
 	assertEqual("enemy", game.ctx.result and game.ctx.result.winner, "the AI sank the player")
-	assertTrue(game.ctx.turn.number <= 4, "within four turns")
+	assertTrue(game.ctx.turn.number <= 5, "within five turns")
 	local launches = enemyLaunches(game)
 	assertTrue(#launches >= 1 and #launches <= 2, "with its first shot or one follow-up")
 	assertEqual("slow", launches[1].order.speed, "the first shot is slow: the target is beyond fast range")

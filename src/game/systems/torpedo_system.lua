@@ -1,8 +1,11 @@
 -- Torpedoes (docs/CONTEXT.md "Torpedo", "Fuse"): launched from a sub's tube
--- by a torpedo order, they run straight at a fixed speed, make noise every
--- tick, and detonate at their fuse, on rock or on a hull. Knows nothing about
--- who (human or AI) gave the order. The motion is the sim's own integrate and
--- collide; Predict.torpedo runs the same functions for the plan preview.
+-- by a torpedo order, they leave from the tube's end of the hull along the
+-- sub's axis, turn at config.torpedo.turnRate onto the order's angle, then
+-- run straight, at a fixed speed; they make noise every tick and detonate at
+-- their fuse, on rock or on a hull. Knows nothing about who (human or AI)
+-- gave the order. The motion is the sim's own integrate and collide, with
+-- `steer` refreshing the velocity from the new angle each tick;
+-- Predict.torpedo runs the same functions for the plan preview.
 -- No `love.*`.
 local Bodies = require("src.sim.bodies")
 local Grid = require("src.sim.grid")
@@ -10,19 +13,40 @@ local Hull = require("src.game.components.hull")
 local Tube = require("src.game.components.tube")
 local Emissions = require("src.perception.emissions")
 local Blast = require("src.game.blast")
+local Angle = require("src.core.angle")
 
 local TorpedoSystem = {}
 
--- A torpedo body launched by `order` from world point (x, y): pointing and
--- moving along the launch angle at the ordered speed, never turning.
-function TorpedoSystem.newBody(x, y, order, config)
+-- Where tube `tube` of a sub at `pose` (`{ x, y, angle }`) launches from and
+-- the way it points: the tube's end of the hull, along the sub's axis.
+-- Returns x, y, angle.
+function TorpedoSystem.launchPose(pose, tube, config)
+	local angle = pose.angle + config.tubes.facing[tube]
+	local half = config.sub.length / 2
+	return pose.x + half * math.cos(angle), pose.y + half * math.sin(angle), angle
+end
+
+-- A torpedo body launched by `order` from a sub at `pose`: at its tube's end
+-- of the hull, pointing and moving out of the tube at the ordered speed.
+function TorpedoSystem.newBody(pose, order, config)
 	local t = config.torpedo
 	local speed = t.speeds[order.speed].speed
+	local x, y, angle = TorpedoSystem.launchPose(pose, order.tube, config)
 	return {
-		x = x, y = y, angle = order.angle,
-		vx = speed * math.cos(order.angle), vy = speed * math.sin(order.angle), angVel = 0,
+		x = x, y = y, angle = angle,
+		vx = speed * math.cos(angle), vy = speed * math.sin(angle), angVel = 0,
 		shape = { length = t.length, beam = t.beam, cells = {} },
 	}
+end
+
+-- Turns `body` one tick towards `torpedo.angle` (at most config.torpedo.turnRate)
+-- and points its velocity along the new angle for the coming step.
+function TorpedoSystem.steer(torpedo, body, config)
+	local delta = Angle.wrap(torpedo.angle - body.angle)
+	local rate = config.torpedo.turnRate
+	body.angle = body.angle + math.max(-rate, math.min(rate, delta))
+	body.vx = torpedo.speed * math.cos(body.angle)
+	body.vy = torpedo.speed * math.sin(body.angle)
 end
 
 -- Records a one-off emission of `level` at world point (x, y) (the cell holding it).
@@ -32,12 +56,14 @@ local function emitAt(ctx, x, y, kind, level)
 end
 
 local function spawn(ctx, sub, subBody, order)
-	local body = TorpedoSystem.newBody(subBody.x, subBody.y, order, ctx.config)
+	local body = TorpedoSystem.newBody(subBody, order, ctx.config)
 	local torpedo = {
 		owner = sub.slot,
 		bodyId = Bodies.add(ctx.bodies, body),
 		hull = body.shape,
 		launchTick = ctx.tick,
+		angle = order.angle,
+		speed = ctx.config.torpedo.speeds[order.speed].speed,
 		fuse = order.fuse,
 		noise = ctx.config.torpedo.speeds[order.speed].noise,
 		startX = body.x,
@@ -117,6 +143,8 @@ function TorpedoSystem.update(ctx)
 					Blast.detonate(ctx, body.x, body.y)
 				end
 				remove(ctx, torpedo)
+			else
+				TorpedoSystem.steer(torpedo, body, ctx.config)
 			end
 		end
 	end

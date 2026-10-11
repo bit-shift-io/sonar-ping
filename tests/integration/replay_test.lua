@@ -1,6 +1,8 @@
--- The plan phase can scrub back through the last execute phase, showing the
--- player's own perception as it stood at each tick. Scrubbing is read-only and
--- modal: planning input is inert until it closes. Mouse coordinates are world px.
+-- The timeline's left half replays the last execute phase: scrubbing the
+-- cursor there shows the player's own perception as it stood at that tick,
+-- read-only. PLAY runs the cursor on through 0 into the plan and stops at the
+-- plan's end, never stepping the match or editing the plan. Mouse coordinates
+-- are screen px.
 local GameHarness = require("tests.support.game_harness")
 local Timeline = require("src.app.render.timeline")
 local FrameStepper = require("tests.support.frame_stepper")
@@ -9,6 +11,8 @@ local Match = require("src.game.match")
 local Bodies = require("src.sim.bodies")
 local SubSystem = require("src.game.systems.sub_system")
 local Trench = require("src.game.levels.trench")
+
+local TPS = 60
 
 local function centre(rect)
 	return rect.x + rect.w / 2, rect.y + rect.h / 2
@@ -27,6 +31,11 @@ local function steer(game, x, y)
 	game:mousereleased(x, y, 1)
 end
 
+-- Clicks the strip at signed `tick` (negative: the last execute phase).
+local function scrubTo(game, tick)
+	click(game, Timeline.tickX(tick, game.ctx.turn.length), Timeline.rowY("course"))
+end
+
 -- A game back in the plan phase after one full turn at full speed (a target
 -- due east and out of reach).
 local function afterOneTurn()
@@ -38,45 +47,55 @@ local function afterOneTurn()
 	return game
 end
 
-local function openReplay(game)
-	click(game, centre(game.state:replayButton()))
-end
-
-local function scrubTo(game, tick)
-	click(game, game.state:scrubX(tick), Timeline.rowY("course"))
-end
-
-test("on turn 1 there is no last turn to replay", function()
+test("on turn 1 the cursor cannot enter the left half", function()
 	local game = GameHarness.startMatch(Trench)
 
-	openReplay(game)
+	scrubTo(game, -150)
 
-	assertFalse(game.state:replaying())
+	assertEqual(1, game.state.selected)
 	assertEqual(nil, game.state:replayPerception())
 end)
 
-test("after a turn the replay button opens the scrubber at the start of that turn", function()
-	local game = afterOneTurn()
-
-	openReplay(game)
-
-	assertTrue(game.state:replaying())
-	assertEqual(game.ctx.tick - game.ctx.turn.length + 1, game.state.replay.tick)
-end)
-
-test("the scrubbed view holds the contacts the player's perception held at that tick", function()
+test("scrubbing to -2.5 s shows the player's perception at that tick of the last execute phase", function()
 	local game = afterOneTurn()
 	local perception = Match.perceptionOf(game.ctx, "player")
-	openReplay(game)
+	local tick = -2.5 * TPS
 
-	scrubTo(game, game.ctx.tick - game.ctx.turn.length / 2)
+	scrubTo(game, tick)
 
 	local view = game.state:replayPerception()
-	local tick = game.state.replay.tick
-	assertEqual(tick, view.tick)
-	local expected = Perception.at(perception, tick)
-	assertEqual(#expected, #view.contacts)
+	local global = game.ctx.tick + tick
+	assertTrue(game.state:replaying())
+	assertEqual(global, view.tick)
+	local expected = Perception.at(perception, global)
 	assertTrue(#expected > 0, "the player heard something by mid-turn")
+	assertEqual(#expected, #view.contacts)
+end)
+
+test("the left end of the strip is the last execute phase's first tick", function()
+	local game = afterOneTurn()
+
+	click(game, Timeline.X + 1, Timeline.rowY("course"))
+
+	assertEqual(1 - game.ctx.turn.length, game.state.selected)
+	assertEqual(game.ctx.tick - game.ctx.turn.length + 1, game.state:replayPerception().tick)
+end)
+
+test("the replay view puts own ship where the sub was at the scrubbed tick", function()
+	local game = GameHarness.startMatch(Trench)
+	local perception = Match.perceptionOf(game.ctx, "player")
+	local startX, startY = SubSystem.centre(game.ctx, game.state.sub)
+	local sx, sy = game.state:subPosition()
+	steer(game, sx + 800, sy)
+	game.state:commit()
+	FrameStepper.step(game, game.ctx.turn.length)
+
+	click(game, Timeline.X + 1, Timeline.rowY("course"))
+
+	local view = game.state:replayPerception()
+	assertTrue(math.abs(view.x - perception.x) > 1, "the ring is not at the current position")
+	assertTrue(math.abs(view.x - startX) < 0.5, "the ring is near where the sub started")
+	assertTrue(math.abs(view.y - startY) < 0.5)
 end)
 
 test("scrubbing changes neither the sim nor the perception", function()
@@ -85,12 +104,9 @@ test("scrubbing changes neither the sim nor the perception", function()
 	local player = Bodies.get(game.ctx.bodies, game.ctx.pools.subs[1].bodyId)
 	local before = { game.ctx.tick, #perception.contacts, #perception.archive, perception.tick, player.x, player.y, game.ctx.rng.state }
 
-	openReplay(game)
-	local length = game.ctx.turn.length
-	for _, offset in ipairs({ 0, 100, length / 2, length - 1 }) do
-		scrubTo(game, game.ctx.tick - game.ctx.turn.length + 1 + offset)
+	for _, tick in ipairs({ 1 - game.ctx.turn.length, -100, -1, 0, 120, game.ctx.turn.length }) do
+		scrubTo(game, tick)
 	end
-	openReplay(game)
 
 	local after = { game.ctx.tick, #perception.contacts, #perception.archive, perception.tick, player.x, player.y, game.ctx.rng.state }
 	for i = 1, #before do
@@ -98,30 +114,24 @@ test("scrubbing changes neither the sim nor the perception", function()
 	end
 end)
 
-test("planning input is inert while the scrubber is open, and works again once it closes", function()
+test("planning input is inert while the cursor is on the left half", function()
 	local game = afterOneTurn()
 	local state = game.state
-	openReplay(game)
-
 	local speed = state:course().speed
-	steer(game, state:subPosition())
-	click(game, centre(state:pingButton()))
-	click(game, centre(state:executeButton()))
+	scrubTo(game, -120)
 
-	assertEqual("plan", game.ctx.turn.phase)
-	assertEqual(1, #state:orders())
-	assertEqual(speed, state:course().speed, "the course handle did not move")
-	openReplay(game)
-	assertFalse(state:replaying())
-	assertEqual(nil, state:replayPerception())
 	click(game, centre(state:pingButton()))
-	assertEqual(2, #state:orders())
+	click(game, centre(state:tubeButton(1)))
+
+	assertEqual(1, #state:orders())
+	scrubTo(game, 120)
+	assertEqual(speed, state:course().speed)
+	click(game, centre(state:pingButton()))
+	assertEqual(2, #state:orders(), "the same press plans a ping on the right half")
 end)
 
-local TPS = 60
-
 local function placePing(game, tick)
-	click(game, game.state:tickX(tick), game.state:timelineRect().y + 24)
+	scrubTo(game, tick)
 	click(game, centre(game.state:pingButton()))
 end
 
@@ -145,186 +155,139 @@ local function turnOneWithPing()
 	return game
 end
 
-test("the replay strip holds last turn's ping at its tick", function()
+test("the left half holds last turn's orders at their ticks there", function()
 	local game = turnOneWithPing()
-
-	openReplay(game)
-
-	local ping = markerOf(game.state:replayEntries(), "ping")
-	assertTrue(ping ~= nil, "the replay holds the ping")
-	assertEqual(4 * TPS, ping.tick)
-end)
-
-test("the replay strip holds last turn's course at tick 1", function()
-	local game = turnOneWithPing()
-
-	openReplay(game)
-
-	local course = markerOf(game.state:replayEntries(), "course")
-	assertTrue(course ~= nil, "the replay holds the course")
-	assertEqual(1, course.tick)
-end)
-
-test("the replay strip holds last turn's torpedo launch at its tick", function()
-	local game = GameHarness.startMatch(Trench)
-	local sx, sy = game.state:subPosition()
-	steer(game, sx + 800, sy)
-	click(game, game.state:tickX(150), game.state:timelineRect().y + 24)
-	click(game, centre(game.state:tubeButton(1)))
-	game.state:aimTorpedo(sx - 300, sy)
-	game.state:commit()
-	FrameStepper.step(game, game.ctx.turn.length)
-
-	openReplay(game)
-
-	local launch = markerOf(game.state:replayEntries(), "torpedo")
-	assertTrue(launch ~= nil, "the replay holds the launch")
-	assertEqual(150, launch.tick)
-end)
-
-test("right-clicking a replay marker deletes nothing, from either turn", function()
-	local game = turnOneWithPing()
-	placePing(game, 60)
-	local before = #game.state:orders()
 	local length = game.ctx.turn.length
-	local first = game.state:replayRange()
-	openReplay(game)
 
-	click(game, Timeline.tickX(4 * TPS, length), Timeline.rowY("ping"), 2)
-	click(game, Timeline.tickX(60, length), Timeline.rowY("ping"), 2)
+	local ping = markerOf(game.state.past, "ping")
+	local course = markerOf(game.state.past, "course")
 
-	assertEqual(before, #game.state:orders())
-	assertEqual(first, game.state.replay.tick, "a right-click does not scrub")
+	assertEqual(4 * TPS - length, ping.tick)
+	assertEqual(1 - length, course.tick)
 end)
 
-test("clicking a replay marker scrubs to it without selecting or moving it", function()
+test("a left-half marker cannot be deleted, selected or moved", function()
 	local game = turnOneWithPing()
-	placePing(game, 60)
 	local state = game.state
-	local length = game.ctx.turn.length
-	local first = state:replayRange()
-	local selected = state.selected
+	placePing(game, 60)
 	local before = #state:orders()
-	openReplay(game)
+	local tick = Timeline.pastTick(4 * TPS, game.ctx.turn.length)
+	local x, y = Timeline.tickX(tick, game.ctx.turn.length), Timeline.rowY("ping")
 
-	click(game, Timeline.tickX(4 * TPS, length), Timeline.rowY("ping"))
+	click(game, x, y, 2)
+	game:mousepressed(x, y, 1)
+	game:mousemoved(Timeline.tickX(200, game.ctx.turn.length), y)
+	game:mousereleased(Timeline.tickX(200, game.ctx.turn.length), y, 1)
 
-	assertEqual(first + 4 * TPS - 1, state.replay.tick)
-	assertEqual(selected, state.selected)
 	assertEqual(before, #state:orders())
+	assertEqual(4 * TPS, markerOf(game.state.past, "ping").tick + game.ctx.turn.length)
 	assertEqual(60, markerOf(state.schedule, "ping").tick, "the own ping did not move")
-end)
-
-test("the replay view puts own ship where the sub was at the scrubbed tick", function()
-	local game = GameHarness.startMatch(Trench)
-	local perception = Match.perceptionOf(game.ctx, "player")
-	local startX, startY = SubSystem.centre(game.ctx, game.state.sub)
-	local sx, sy = game.state:subPosition()
-	steer(game, sx + 800, sy)
-	game.state:commit()
-	FrameStepper.step(game, game.ctx.turn.length)
-	openReplay(game)
-
-	local view = game.state:replayPerception()
-
-	assertTrue(math.abs(view.x - perception.x) > 1, "the ring is not at the current position")
-	assertTrue(math.abs(view.x - startX) < 0.5, "the ring is near where the sub started")
-	assertTrue(math.abs(view.y - startY) < 0.5)
-	local x, y = Perception.positionAt(perception, game.state.replay.tick)
-	assertEqual(x, view.x)
-	assertEqual(y, view.y)
+	assertEqual(nil, state.moving)
 end)
 
 local function playPause(game)
 	click(game, centre(game.state:playButton()))
 end
 
-test("the replay opens paused, and time passing does not move the scrubbed tick", function()
+test("the cursor stays put while paused", function()
 	local game = afterOneTurn()
-	openReplay(game)
-	local first = game.state:replayRange()
+	scrubTo(game, -200)
 
 	FrameStepper.step(game, 30)
 
-	assertFalse(game.state:replayPlaying())
-	assertEqual(first, game.state.replay.tick)
+	assertEqual(-200, game.state.selected)
 	assertEqual("PLAY", game.state:playLabel())
 end)
 
-test("playing advances the scrubbed tick one per frame without stepping the match", function()
+test("playing advances the cursor one tick per frame without stepping the match", function()
 	local game = afterOneTurn()
-	openReplay(game)
-	local first = game.state:replayRange()
+	scrubTo(game, -200)
 	local tick = game.ctx.tick
 
 	playPause(game)
 	FrameStepper.step(game, 30)
 
-	assertTrue(game.state:replayPlaying())
 	assertEqual("PAUSE", game.state:playLabel())
-	assertEqual(first + 30, game.state.replay.tick)
+	assertEqual(-170, game.state.selected)
 	assertEqual(tick, game.ctx.tick, "playback does not step the match")
 	assertEqual("plan", game.ctx.turn.phase)
 end)
 
-test("pressing PAUSE stops the playback where it is", function()
+test("PLAY from the left end crosses 0 and stops at +5 s, editing nothing", function()
 	local game = afterOneTurn()
-	openReplay(game)
-	playPause(game)
-	FrameStepper.step(game, 20)
+	local state = game.state
+	placePing(game, 90)
+	local orders = #state:orders()
+	click(game, Timeline.X + 1, Timeline.rowY("course"))
 
 	playPause(game)
-	local at = game.state.replay.tick
-	FrameStepper.step(game, 20)
+	FrameStepper.step(game, 3 * game.ctx.turn.length)
 
-	assertFalse(game.state:replayPlaying())
-	assertEqual(at, game.state.replay.tick)
+	assertEqual(game.ctx.turn.length, state.selected)
+	assertEqual("PLAY", state:playLabel())
+	assertEqual(orders, #state:orders())
+	assertEqual(90, markerOf(state.schedule, "ping").tick)
+	assertEqual("plan", game.ctx.turn.phase)
 end)
 
-test("playback stops on the last tick", function()
+test("pressing PAUSE stops the cursor where it is", function()
 	local game = afterOneTurn()
-	openReplay(game)
-	local _, last = game.state:replayRange()
+	scrubTo(game, -200)
+	playPause(game)
+	FrameStepper.step(game, 20)
 
 	playPause(game)
-	FrameStepper.step(game, game.ctx.turn.length + 60)
+	local at = game.state.selected
+	FrameStepper.step(game, 20)
 
-	assertEqual(last, game.state.replay.tick)
-	assertFalse(game.state:replayPlaying())
+	assertEqual(at, game.state.selected)
 	assertEqual("PLAY", game.state:playLabel())
 end)
 
-test("PLAY on the last tick restarts from the first", function()
+test("PLAY at +5 s restarts from the left end", function()
 	local game = afterOneTurn()
-	openReplay(game)
-	local first, last = game.state:replayRange()
-	scrubTo(game, last)
+	scrubTo(game, game.ctx.turn.length)
 
 	playPause(game)
 	FrameStepper.step(game, 10)
 
-	assertTrue(game.state:replayPlaying())
-	assertEqual(first + 10, game.state.replay.tick)
+	assertEqual(1 - game.ctx.turn.length + 10, game.state.selected)
+end)
+
+test("on turn 1 PLAY at +5 s restarts from the plan's first tick", function()
+	local game = GameHarness.startMatch(Trench)
+	scrubTo(game, game.ctx.turn.length)
+
+	playPause(game)
+	FrameStepper.step(game, 10)
+
+	assertEqual(11, game.state.selected)
 end)
 
 test("pressing the strip pauses playback and scrubs", function()
 	local game = afterOneTurn()
-	openReplay(game)
-	local first = game.state:replayRange()
+	scrubTo(game, -200)
 	playPause(game)
 	FrameStepper.step(game, 10)
 
-	scrubTo(game, first + 100)
+	scrubTo(game, -100)
 	FrameStepper.step(game, 10)
 
-	assertFalse(game.state:replayPlaying())
-	assertEqual(first + 100, game.state.replay.tick)
+	assertEqual("PLAY", game.state:playLabel())
+	assertEqual(-100, game.state.selected)
 end)
 
-test("the play button overlaps neither EXECUTE nor REPLAY", function()
+test("there is no REPLAY button; PLAY overlaps no other button", function()
 	local game = GameHarness.startMatch(Trench)
-	local p = game.state:playButton()
-	for _, other in ipairs({ game.state:executeButton(), game.state:replayButton(), game.state:pingButton() }) do
-		assertTrue(p.x + p.w <= other.x or other.x + other.w <= p.x, "no horizontal overlap")
+	local state = game.state
+	assertEqual(nil, state.replayButton)
+	local p = state:playButton()
+	local others = { state:executeButton(), state:pingButton() }
+	for i = 1, game.ctx.config.tubes.count do
+		others[#others + 1] = state:tubeButton(i)
+	end
+	for _, other in ipairs(others) do
+		local apart = p.x + p.w <= other.x or other.x + other.w <= p.x or p.y + p.h <= other.y or other.y + other.h <= p.y
+		assertTrue(apart, "no overlap")
 	end
 end)

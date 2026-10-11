@@ -1,7 +1,7 @@
 -- Previews for the plan phase. Course: where a slot's sub will be after each
 -- tick of the coming execute phase if it follows `entries` ({ tick, order }
--- as for Turn.submit). Torpedo: the straight run of a launch and where it
--- ends. Both run the sim's own functions (helm, torpedo system, integrate,
+-- as for Turn.submit). Torpedo: the run of a launch (out of its tube, the
+-- turn onto its angle, then straight) and where it ends. Both run the sim's own functions (helm, torpedo system, integrate,
 -- collide) on private copies in Match.step's order, so a preview cannot
 -- drift from what the sim does. Read ctx; change nothing in it. Pure; no
 -- `love.*`.
@@ -11,8 +11,12 @@ local Collide = require("src.sim.collide")
 local Helm = require("src.game.components.helm")
 local Turn = require("src.game.turn")
 local TorpedoSystem = require("src.game.systems.torpedo_system")
+local Orders = require("src.game.orders")
+local Angle = require("src.core.angle")
 
 local Predict = {}
+
+local atan2 = math.atan2 or math.atan
 
 local function copy(t)
 	local c = {}
@@ -66,7 +70,7 @@ function Predict.pathFrom(world, ownBody, ownHelm, entries, length)
 end
 
 -- Runs torpedo `body` (a private copy) and its record `torpedo` (a copy:
--- launchTick, fuse, startX, startY, armed) the way TorpedoSystem.update does,
+-- launchTick, fuse, angle, speed, startX, startY, armed) the way TorpedoSystem.update does,
 -- for the ticks after global tick `now`: up to `limit` ticks, past the end of
 -- the run, or (no `limit`) only until the run ends. Hulls aside.
 local function run(world, body, torpedo, now, limit)
@@ -97,13 +101,14 @@ local function run(world, body, torpedo, now, limit)
 		if body.blocked then
 			break
 		end
+		TorpedoSystem.steer(torpedo, body, config)
 	end
 	return preview
 end
 
--- The run of torpedo order `order` launched from world point (x, y) (the
--- launching sub's position after its launch tick, e.g. Predict.path's point
--- for that tick). Hulls are unknown to a plan, so contact with them is not
+-- The run of torpedo order `order` launched by a sub at `pose` (`{ x, y,
+-- angle }`: the launching sub's pose after its launch tick, e.g. Predict.path's
+-- point for that tick); it leaves from the order's tube's end of the hull. Hulls are unknown to a plan, so contact with them is not
 -- previewed. `world` needs only `config` and `grid` (ctx will do). Returns:
 --   points     `{ x, y }` after each tick of running, up to the speed's max run in ticks or
 --              the tick it meets rock, whatever the fuse (the line the fuse
@@ -112,10 +117,14 @@ end
 --   endTick    ticks after launch at which it ends (points[endTick] is there);
 --   armedAt    ticks after launch at which it arms, or nil if it never does;
 --   detonation `{ x, y }` where it detonates, or nil for a dud.
-function Predict.torpedo(world, x, y, order)
+function Predict.torpedo(world, pose, order)
 	local config = world.config
-	local body = TorpedoSystem.newBody(x, y, order, config)
-	local torpedo = { launchTick = 0, fuse = order.fuse, startX = x, startY = y, armed = false }
+	local body = TorpedoSystem.newBody(pose, order, config)
+	local torpedo = {
+		launchTick = 0, fuse = order.fuse, angle = order.angle,
+		speed = config.torpedo.speeds[order.speed].speed,
+		startX = body.x, startY = body.y, armed = false,
+	}
 	return run(world, body, torpedo, 0, config.torpedo.speeds[order.speed].maxRun)
 end
 
@@ -129,6 +138,75 @@ end
 function Predict.torpedoInFlight(ctx, torpedo)
 	local body = copy(Bodies.get(ctx.bodies, torpedo.bodyId))
 	return run(ctx, body, copy(torpedo), ctx.tick)
+end
+
+-- Where tube `tube` of a sub at `pose` launches from: x, y, and the angle the
+-- torpedo leaves along.
+function Predict.launchPose(world, pose, tube)
+	return TorpedoSystem.launchPose(pose, tube, world.config)
+end
+
+-- Open-water run of `order` from a sub at `pose` for `ticks` ticks: the
+-- position after each tick, and the first tick after which it runs straight
+-- on its angle (nil if still turning).
+local function openWater(config, pose, order, ticks)
+	local body = TorpedoSystem.newBody(pose, order, config)
+	local store = Bodies.new()
+	Bodies.add(store, body)
+	local torpedo = { angle = order.angle, speed = config.torpedo.speeds[order.speed].speed }
+	local points, straight = {}, nil
+	for k = 1, ticks do
+		Integrate.step(store, config.dt)
+		points[k] = { x = body.x, y = body.y }
+		TorpedoSystem.steer(torpedo, body, config)
+		if not straight and math.abs(Angle.wrap(order.angle - body.angle)) < 1e-9 then
+			straight = k
+		end
+	end
+	return points, straight
+end
+
+local function distance(p, x, y)
+	return math.sqrt((p.x - x) ^ 2 + (p.y - y) ^ 2)
+end
+
+-- Aims a launch at speed setting `name` from tube `tube` of a sub at `pose`
+-- (`{ x, y, angle }` at the launch tick) at (tx, ty), in open water (the
+-- torpedo system's own launch, steer and integrate; rock is not looked at).
+-- The angle is the bearing of the point from where the turn ends, which
+-- itself depends on the angle: config.torpedo.aimSteps fixed-point steps
+-- from the bearing from the launch point. The fuse is the tick of the run
+-- nearest the point. Returns `{ order, x, y, dud, reachable }`: the order,
+-- where it detonates (the point, or the nearest point of the run when the
+-- run cannot reach it), whether that is inside the arming distance of the
+-- launch point, and whether it is within a tick's run of the point.
+function Predict.aim(world, tube, pose, tx, ty, name)
+	local config = world.config
+	local setting = config.torpedo.speeds[name]
+	local lx, ly = TorpedoSystem.launchPose(pose, tube, config)
+	local order = Orders.torpedo(tube, atan2(ty - ly, tx - lx), name, 1)
+	local turnTicks = math.ceil(math.pi / config.torpedo.turnRate) + 1
+	for _ = 1, config.torpedo.aimSteps do
+		local points, straight = openWater(config, pose, order, turnTicks)
+		local p = points[straight]
+		order.angle = atan2(ty - p.y, tx - p.x)
+	end
+	local points = openWater(config, pose, order, setting.maxRun)
+	local best = 1
+	for k = 2, #points do
+		if distance(points[k], tx, ty) < distance(points[best], tx, ty) then
+			best = k
+		end
+	end
+	order.fuse = best
+	local p = points[best]
+	return {
+		order = order,
+		x = p.x,
+		y = p.y,
+		dud = distance(p, lx, ly) < config.torpedo.armDistance,
+		reachable = distance(p, tx, ty) <= setting.speed * config.dt,
+	}
 end
 
 return Predict

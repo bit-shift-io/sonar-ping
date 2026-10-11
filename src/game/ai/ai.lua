@@ -190,45 +190,37 @@ local function search(view)
 	return Orders.course(heading, 0, speedOf(view, view.config.ai.quietSpeed))
 end
 
-local function loadedTube(view)
-	for i, tube in ipairs(view.own.tubes) do
-		if tube.reload == 0 then
-			return i
-		end
-	end
-	return nil
-end
-
--- A torpedo launched at turn tick 1 (from path[1], where the sub is then) at
--- the target's predicted intercept, or nil when there is no clean shot: no
+-- A torpedo launched at turn tick 1 (by the sub at path[1], its pose then)
+-- from the tube facing the target (FireSolution.tubeFor), led onto the
+-- target's predicted course through the curved run (FireSolution.lead),
+-- fast if that reaches it, else slow; or nil when there is no clean shot: no
 -- loaded tube, out of range, inside the arming distance, or rock in the way.
 local function shot(view, estimate, path)
 	local config, cfg = view.config, view.config.ai
-	local tube = loadedTube(view)
-	if not tube or #path == 0 then
+	if #path == 0 then
 		return nil
 	end
-	local wx, wy = path[1].x, path[1].y
-	local sx, sy = toCells(view, wx, wy)
-	local tx, ty = predict(view, estimate, view.tick + 1)
+	local pose = path[1]
 	local size = config.grid.cellSize
+	local cx, cy = predict(view, estimate, view.tick + 1)
+	local target = { x = (cx - 0.5) * size, y = (cy - 0.5) * size, vx = estimate.vx * size, vy = estimate.vy * size }
+	local tube = FireSolution.tubeFor(config, pose.angle, atan2(target.y - pose.y, target.x - pose.x), view.own.tubes)
+	if not tube then
+		return nil
+	end
+	local lx, ly = Predict.launchPose(view, pose, tube)
 	for _, name in ipairs({ "fast", "slow" }) do
-		local setting = config.torpedo.speeds[name]
-		local speed = setting.speed * config.dt / size
-		local angle, ticks = FireSolution.intercept(sx, sy, tx, ty, estimate.vx, estimate.vy, speed)
-		if angle then
-			local fuse = math.floor(ticks + 0.5)
-			if fuse >= 1 and fuse <= setting.maxRun then
-				if fuse * speed * size < config.torpedo.armDistance + cfg.armMargin then
-					return nil
-				end
-				local order = Orders.torpedo(tube, angle, name, fuse)
-				local preview = Predict.torpedo(view, wx, wy, order)
-				if preview.ends ~= "fuse" or preview.endTick ~= fuse then
-					return nil
-				end
-				return order, { x = wx, y = wy, points = preview.points, endTick = fuse }
+		local order = FireSolution.lead(view, pose, tube, name, target)
+		if order then
+			local preview = Predict.torpedo(view, pose, order)
+			if preview.ends ~= "fuse" or preview.endTick ~= order.fuse then
+				return nil
 			end
+			local p = preview.points[order.fuse]
+			if (p.x - lx) ^ 2 + (p.y - ly) ^ 2 < (config.torpedo.armDistance + cfg.armMargin) ^ 2 then
+				return nil
+			end
+			return order, { x = lx, y = ly, points = preview.points, endTick = order.fuse }
 		end
 	end
 	return nil

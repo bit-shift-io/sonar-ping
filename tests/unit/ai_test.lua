@@ -118,6 +118,7 @@ test("a noisy target within fast torpedo range draws a fast shot", function()
 	local shots = ofKind(ctx.turn.queues.enemy, "torpedo")
 	assertEqual(1, #shots)
 	assertEqual("fast", shots[1].order.speed)
+	assertEqual(1, shots[1].order.tube, "the bow tube, facing the player")
 	assertTrue(Orders.validate(shots[1].order, Config))
 end)
 
@@ -133,8 +134,11 @@ test("a target heard beyond slow torpedo range draws no shot", function()
 end)
 
 test("the AI fires only from a loaded tube", function()
+	-- The player is ahead of the enemy but well above its axis, so a stern
+	-- shot can turn round onto it.
 	local lvl = level(Config.speeds.slow.speed)
 	lvl.subs.enemy.x = 600
+	lvl.subs.player.y = 150
 	local ctx = Match.new(lvl, Config, 1, { ai = false })
 	local enemy = ctx.pools.subs[2]
 	Turn.submit(ctx, "player", {})

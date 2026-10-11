@@ -39,3 +39,10 @@ test("a tube is loaded again after reloadTicks ticks", function()
 	Tube.tick(tube)
 	assertEqual(0, tube.reload, "a loaded tube stays at zero")
 end)
+
+test("a tube takes 1200 ticks (20 s of execute) to reload", function()
+	local tube = Tube.new()
+	Tube.fire(tube, Config)
+
+	assertEqual(1200, tube.reload)
+end)

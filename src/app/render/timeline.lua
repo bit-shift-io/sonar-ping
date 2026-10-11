@@ -1,5 +1,8 @@
--- The turn timeline: a strip along the bottom of the plan screen showing the
--- turn's seconds, with each scheduled order as a marker on its kind's row.
+-- The turn timeline: one strip along the bottom of the screen from -5 s to
+-- +5 s. Ticks are signed, relative to the plan's start (0, the centre): the
+-- left half is the last execute phase (its orders greyed, read-only), the
+-- right half this turn (plan ticks 1..length, each scheduled order a marker on
+-- its kind's row).
 -- Planning UI only; the sim sees orders, never this. The geometry is pure (no
 -- `love.*`), so PlanState can hit-test markers; drawing reaches `love.*` only
 -- when called. A new order kind plugs in by adding an entry to Timeline.KINDS.
@@ -53,15 +56,29 @@ function Timeline.rect()
 	return { x = Timeline.X, y = Timeline.Y, w = Timeline.W, h = Timeline.H }
 end
 
--- Screen x of the left edge of `tick` (1..length) on the strip.
+-- Screen x of signed `tick` on the strip: 0 at the centre, `length` at the
+-- right edge, `-length` at the left.
 function Timeline.tickX(tick, length)
-	return Timeline.X + (tick - 1) / (length - 1) * Timeline.W
+	return Timeline.X + Timeline.W / 2 + tick / length * Timeline.W / 2
 end
 
--- The tick under screen x, clamped to the turn.
-function Timeline.tickAt(x, length)
-	local tick = math.floor((x - Timeline.X) / Timeline.W * (length - 1) + 0.5) + 1
-	return math.max(1, math.min(length, tick))
+-- The signed tick of tick `tick` (1..length) of the last execute phase: its
+-- last tick is 0, the plan's start.
+function Timeline.pastTick(tick, length)
+	return tick - length
+end
+
+-- The lowest tick the cursor can reach in turn `number`: the last execute
+-- phase's first tick, or the plan's first on turn 1 (there is none before).
+function Timeline.lowestTick(number, length)
+	return number > 1 and 1 - length or 1
+end
+
+-- The signed tick under screen x, clamped to `lowest` (default the last
+-- execute phase's first tick, `1 - length`) and the plan's last tick.
+function Timeline.tickAt(x, length, lowest)
+	local tick = math.floor((x - Timeline.X - Timeline.W / 2) / (Timeline.W / 2) * length + 0.5)
+	return math.max(lowest or 1 - length, math.min(length, tick))
 end
 
 function Timeline.contains(x, y)
@@ -74,12 +91,13 @@ function Timeline.rowY(kind)
 end
 
 -- The index of the topmost entry (last in the list) whose marker is under
--- (x, y), or nil. `entries` are `{ tick, order }`.
+-- (x, y), or nil. `entries` are `{ tick, order }`. Only plan markers (right
+-- half, tick >= 1) can be hit; the left half is read-only.
 function Timeline.markerAt(entries, length, x, y)
 	for i = #entries, 1, -1 do
 		local entry = entries[i]
 		local style = Timeline.KINDS[entry.order.kind]
-		if style then
+		if style and entry.tick >= 1 then
 			local mx, my = Timeline.tickX(entry.tick, length), Timeline.rowY(entry.order.kind)
 			if math.abs(x - mx) <= HIT_X and math.abs(y - my) <= HIT_Y then
 				return i
@@ -104,24 +122,47 @@ end
 
 local FRAME = { 0.6, 1.0, 0.6, 1 }
 local BACK = { 0.0, 0.08, 0.04, 0.8 }
+local EMPTY = { 0.0, 0.0, 0.0, 0.6 } -- the left half on turn 1: no last execute phase
+local PAST = { 0.45, 0.5, 0.45, 1 } -- last turn's markers: read-only
 local CURSOR = { 1, 1, 1, 0.9 }
+local LABEL_ABOVE = 14 -- the cursor's time label sits this far above the strip
 
--- `selected` is the cursor tick; `moving` the entry being dragged, if any.
-function Timeline.draw(entries, length, ticksPerSecond, selected, moving)
+local function secondLabel(second)
+	return second > 0 and "+" .. second or tostring(second)
+end
+
+-- `entries` are this turn's orders (right half), `past` last turn's at their
+-- signed ticks (left half, greyed). `cursor` is the signed cursor tick;
+-- `moving` the entry being dragged, if any; `lowest` the lowest tick the
+-- cursor can reach (1 on turn 1, whose left half is drawn empty).
+function Timeline.draw(entries, past, length, ticksPerSecond, cursor, moving, lowest)
+	local centre = Timeline.tickX(0, length)
 	love.graphics.setColor(BACK)
 	love.graphics.rectangle("fill", Timeline.X, Timeline.Y, Timeline.W, Timeline.H)
+	if (lowest or 1 - length) >= 1 then
+		love.graphics.setColor(EMPTY)
+		love.graphics.rectangle("fill", Timeline.X, Timeline.Y, centre - Timeline.X, Timeline.H)
+	end
 	love.graphics.setColor(FRAME)
 	love.graphics.rectangle("line", Timeline.X, Timeline.Y, Timeline.W, Timeline.H)
-	for second = 0, math.floor((length - 1) / ticksPerSecond) do
-		local x = Timeline.tickX(second * ticksPerSecond + 1, length)
+	love.graphics.line(centre, Timeline.Y, centre, Timeline.Y + Timeline.H)
+	local seconds = math.floor(length / ticksPerSecond)
+	for second = -seconds, seconds do
+		local x = Timeline.tickX(second * ticksPerSecond, length)
+		local label = secondLabel(second)
+		local font = love.graphics.getFont()
+		local lx = math.min(x + 2, Timeline.X + Timeline.W - font:getWidth(label) - 2)
 		love.graphics.line(x, Timeline.Y, x, Timeline.Y + 8)
-		love.graphics.print(tostring(second), x + 2, Timeline.Y - 1)
+		love.graphics.print(label, lx, Timeline.Y - 1)
 	end
 
-	local cx = Timeline.tickX(selected, length)
-	love.graphics.setColor(CURSOR)
-	love.graphics.line(cx, Timeline.Y, cx, Timeline.Y + Timeline.H)
-
+	for _, entry in ipairs(past) do
+		local style = Timeline.KINDS[entry.order.kind]
+		if style then
+			love.graphics.setColor(PAST)
+			style.shape("line", Timeline.tickX(entry.tick, length), Timeline.rowY(entry.order.kind))
+		end
+	end
 	for _, entry in ipairs(entries) do
 		local style = Timeline.KINDS[entry.order.kind]
 		if style then
@@ -130,6 +171,11 @@ function Timeline.draw(entries, length, ticksPerSecond, selected, moving)
 			style.shape(entry == moving and "fill" or "line", x, y)
 		end
 	end
+
+	local cx = Timeline.tickX(cursor, length)
+	love.graphics.setColor(CURSOR)
+	love.graphics.line(cx, Timeline.Y, cx, Timeline.Y + Timeline.H)
+	love.graphics.print(string.format("%+.1f s", cursor / ticksPerSecond), cx + 3, Timeline.Y - LABEL_ABOVE)
 end
 
 return Timeline

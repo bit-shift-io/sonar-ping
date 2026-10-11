@@ -1,9 +1,10 @@
 -- Plan phase overlay: the player's own sub marker, course handle, ghost path
 -- with a tick mark per second and a marker per scheduled order, the course
 -- target and the achieved end of turn when they differ, the PING button, the
--- torpedo previews (render/torpedo_plan), the tube buttons, the turn timeline and Execute. Reads only the
+-- torpedo previews (render/torpedo_plan), the tube buttons, the timeline, PLAY/PAUSE and Execute. Reads only the
 -- planning slot's own sub (own-ship knowledge), never the enemy. Draws in
--- world px; the caller applies the screen fit. No `love.*` at load time.
+-- two layers: drawWorld in world px (under the camera) and drawUI in screen
+-- px (buttons, timeline, labels). No `love.*` at load time.
 local Timeline = require("src.app.render.timeline")
 local TorpedoPlan = require("src.app.render.torpedo_plan")
 local Helm = require("src.game.components.helm")
@@ -30,8 +31,6 @@ local function button(rect, label, selected)
 	love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
 	love.graphics.print(label, rect.x + 8, rect.y + rect.h / 2 - 7)
 end
-
-PlanOverlay.drawButton = button
 
 function PlanOverlay.ticksPerSecond(state)
 	return math.floor(1 / state.ctx.config.dt + 0.5)
@@ -73,7 +72,7 @@ local function courseTarget(state)
 	love.graphics.circle("line", ex, ey, END_RADIUS)
 end
 
-function PlanOverlay.draw(state)
+function PlanOverlay.drawWorld(state)
 	local sx, sy = state:subPosition()
 	if sx then
 		ghostPath(state, sx, sy)
@@ -90,12 +89,15 @@ function PlanOverlay.draw(state)
 		end
 	end
 	TorpedoPlan.draw(state)
-	local at = state.path[state.selected]
-	if at then
+	local ax, ay = state:projectedPosition()
+	if ax then
 		love.graphics.setColor(SUB_AT)
-		love.graphics.circle("fill", at.x, at.y, SUB_AT_RADIUS)
+		love.graphics.circle("fill", ax, ay, SUB_AT_RADIUS)
 	end
+	love.graphics.setColor(1, 1, 1, 1)
+end
 
+function PlanOverlay.drawUI(state)
 	button(state:pingButton(), "PING", state:hasPingAtSelected())
 	local editing = state.torpedo and state.torpedo.order
 	for i = 1, state.ctx.config.tubes.count do
@@ -104,11 +106,9 @@ function PlanOverlay.draw(state)
 		button(state:tubeButton(i), label, editing and editing.tube == i)
 	end
 	button(state:executeButton(), "EXECUTE", false)
-	if state:replayAvailable() then
-		button(state:replayButton(), "REPLAY", false)
-	end
+	button(state:playButton(), state:playLabel(), state.playing)
 
-	Timeline.draw(state.schedule, state.ctx.turn.length, PlanOverlay.ticksPerSecond(state), state.selected, state.moving)
+	Timeline.draw(state.schedule, state.past, state.ctx.turn.length, PlanOverlay.ticksPerSecond(state), state.selected, state.moving, state:lowestTick())
 
 	love.graphics.setColor(BUTTON)
 	love.graphics.print(string.format("TURN %d  PLAN", state.ctx.turn.number), 16, 96)

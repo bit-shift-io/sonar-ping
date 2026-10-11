@@ -4,6 +4,8 @@
 local defaultTestFiles = {
 	"tests/unit/runner_smoke_test.lua",
 	"tests/unit/screen_fit_test.lua",
+	"tests/unit/camera_test.lua",
+	"tests/unit/plan_zoom_test.lua",
 	"tests/unit/vec2_test.lua",
 	"tests/unit/timeline_geometry_test.lua",
 	"tests/unit/rng_test.lua",

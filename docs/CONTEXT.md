@@ -71,24 +71,24 @@ Domain terms for Sonar Ping. Code, docs, and conversation use these words with t
 - **Boundary:** The only way humans and AI affect the sim. Recorded for replay.
 
 ## Timeline
-- **Definition:** The turn's ticks shown as a strip, holding the player's orders. Shown in the plan phase, the execute phase and the replay.
-- **Boundary:** UI only. Editable only in the plan phase. The sim sees orders, not the timeline.
+- **Definition:** One strip from −5 s to +5 s. The left half is the last execute phase; the right half is this turn. Shown in the plan and execute phases.
+- **Boundary:** UI only. Only right-half orders are editable, and only in the plan phase. The sim sees orders, not the timeline.
 
 ## Scrub cursor
-- **Definition:** The tick a timeline view points at. In the plan phase it selects where edits apply and shows own sub and own torpedoes projected to that tick.
-- **Boundary:** Shows own-ship knowledge only. Never moves the sim.
+- **Definition:** The tick the timeline points at. On the left half it shows the replay. On the right half it selects where edits apply and shows own sub, own torpedoes and marks projected to that tick.
+- **Boundary:** Shows own-ship knowledge and marks only. Never moves the sim.
 
 ## Replay
-- **Definition:** The plan-phase view of the last execute phase, built from the player's perception alone. Scrubbed by hand or played back at real speed.
+- **Definition:** The left half of the timeline: the last execute phase, built from the player's perception alone. PLAY runs it on through 0 into the plan.
 - **Boundary:** Read-only. Shows contacts and own-ship position as they stood at the replayed tick; never true state.
 
 ## Tube
-- **Definition:** A torpedo launcher on a sub, with a reload time.
-- **Boundary:** Two per sub in v1.
+- **Definition:** A torpedo launcher on a sub, with a reload time. Tube 1 faces the bow, tube 2 the stern.
+- **Boundary:** Two per sub. A torpedo leaves along the sub's axis from the tube's end of the hull.
 
 ## Torpedo
-- **Definition:** An unguided WW2 weapon set before launch: angle, speed, fuse.
-- **Boundary:** Runs straight. No guidance or homing. Noisy.
+- **Definition:** An unguided WW2 weapon set before launch: angle, speed, fuse. It leaves its tube along the sub's axis, turns at a fixed rate onto its angle, then runs straight.
+- **Boundary:** No guidance or homing after the turn. Noisy.
 
 ## Fuse
 - **Definition:** Ticks after launch at which a torpedo detonates.
@@ -113,3 +113,27 @@ Domain terms for Sonar Ping. Code, docs, and conversation use these words with t
 ## Max run
 - **Definition:** The longest run, in ticks, a torpedo speed setting allows.
 - **Boundary:** Fast runs shorter than slow. A fuse never exceeds its speed's max run.
+
+## Mark
+- **Definition:** A player's guess at an enemy's track: a position at a tick and a velocity. Drawn at the scrub cursor tick on either half of the timeline.
+- **Boundary:** Planning UI only. Never reaches the sim, the AI or the order log. Not a contact.
+
+## Track
+- **Definition:** The AI's straight-line course fit through samples it believes come from one contact.
+- **Boundary:** AI memory only, built from perception. An AI holds several at once.
+
+## Target
+- **Definition:** The track an AI is hunting and firing at.
+- **Boundary:** Chosen again at random from its live tracks after every shot. May be the player or another AI.
+
+## Side
+- **Definition:** A group of slots that wins or loses together. Every slot is its own side (free-for-all).
+- **Boundary:** The match ends when the player sinks or every AI is gone.
+
+## Solid blob
+- **Definition:** A drifting mass in the water that blocks subs, torpedoes and sound, and echoes pings like rock.
+- **Boundary:** Not terrain: it lives in the blob layer, never the grid (ADR 0004). Seen only by sonar. Its echo looks like a hull echo.
+
+## Soft cover
+- **Definition:** A drifting patch of water that muffles passive noise crossing it. Pinged, it echoes in its own colour.
+- **Boundary:** Subs, torpedoes, pings and echoes pass through. Not terrain (ADR 0004).

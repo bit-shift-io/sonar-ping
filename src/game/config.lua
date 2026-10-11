@@ -4,6 +4,14 @@ local Config = {
 	-- Fixed simulation step in seconds; turn time is counted in ticks.
 	dt = 1 / 60,
 
+	-- Camera (src/app/camera): zoom range and the factor one wheel notch
+	-- multiplies the zoom by.
+	camera = {
+		minZoom = 1,
+		maxZoom = 4,
+		wheelStep = 1.15,
+	},
+
 	-- World grid (docs/CONTEXT.md "Cell"): 320 x 180 cells of 4 px is the
 	-- 1280 x 720 virtual screen.
 	grid = {
@@ -81,18 +89,25 @@ local Config = {
 	},
 
 	-- Torpedo tubes: `count` per sub; a tube that fires is empty for
-	-- `reloadTicks` ticks of execute phase (600 = 10 s).
+	-- `reloadTicks` ticks of execute phase (1200 = 20 s). `facing[i]` is the
+	-- direction tube i points, relative to the sub's heading: tube 1 the bow
+	-- (0), tube 2 the stern (pi). A torpedo leaves from that end of the hull.
 	tubes = {
 		count = 2,
-		reloadTicks = 600,
+		reloadTicks = 1200,
+		facing = { 0, math.pi },
 	},
 
-	-- Torpedoes (docs/CONTEXT.md "Torpedo"): unguided, they run straight from
-	-- the launching sub's centre. Hull in world px (`length` along the run,
+	-- Torpedoes (docs/CONTEXT.md "Torpedo"): unguided, they leave the tube
+	-- along the sub's axis, turn at `turnRate` radians per tick onto the
+	-- order's angle (turning radius: 40 px slow, ~67 px fast), then run
+	-- straight. Hull in world px (`length` along the run,
 	-- `beam` across). `speeds` are the settings a launch order may pick: px/s
 	-- and the running noise level; `maxRun` is the longest fuse in ticks the
 	-- speed allows (fast runs shorter: its range is half the slow range);
-	-- `defaultFuse` is what the plan screen offers first. A torpedo arms once
+	-- `defaultFuse` is what the plan screen offers first. `aimSteps` is how
+	-- many fixed-point steps src/game/torpedo_aim takes to solve the angle
+	-- that turns a run onto an aim point. A torpedo arms once
 	-- it is `armDistance` px from its launch point; before that it ignores
 	-- hulls and a fuse or rock contact makes it a dud (no blast), so the
 	-- firing sub is never inside its blast. `blastRadius` px from the
@@ -106,6 +121,8 @@ local Config = {
 			slow = { speed = 120, noise = 3, maxRun = 540 },
 			fast = { speed = 200, noise = 5, maxRun = 160 },
 		},
+		turnRate = 0.05,
+		aimSteps = 12,
 		defaultFuse = 300,
 		armDistance = 64,
 		blastRadius = 20,

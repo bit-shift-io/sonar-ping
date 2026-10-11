@@ -240,3 +240,37 @@ test("the torpedoes in the water at the scrubbed tick sit on their run line", fu
 	assertEqual(1, #game.state:torpedoesAt(2 * TPS + last))
 	assertEqual(0, #game.state:torpedoesAt(2 * TPS + last + 1), "gone after the run ends")
 end)
+
+test("scrubbing to +2.5 s shows live perception and the sub where the plan has it then", function()
+	local game = GameHarness.startMatch(Trench)
+	fullAhead(game)
+
+	selectTick(game, 2.5 * TPS)
+	local px, py = game.state:projectedPosition()
+	assertEqual(nil, game.state:replayPerception(), "the right half shows live perception")
+	click(game, centre(game.state:executeButton()))
+	FrameStepper.step(game, 2.5 * TPS)
+
+	local size = Config.grid.cellSize
+	local cx, cy = SubSystem.centre(game.ctx, game.ctx.pools.subs[1])
+	assertTrue(math.abs((cx - 0.5) * size - px) <= size, "x within a cell of the projection")
+	assertTrue(math.abs((cy - 0.5) * size - py) <= size, "y within a cell of the projection")
+end)
+
+test("the execute strip holds last turn's orders on the left half and its cursor on the right", function()
+	local game = GameHarness.startMatch(Trench)
+	placePing(game, 4 * TPS)
+	click(game, centre(game.state:executeButton()))
+	FrameStepper.step(game, game.ctx.turn.length)
+	click(game, centre(game.state:executeButton()))
+	FrameStepper.step(game, 30)
+
+	local execute = game.state
+	assertEqual("execute", execute.phase)
+	local ping
+	for _, entry in ipairs(execute.past) do
+		ping = entry.order.kind == "ping" and entry or ping
+	end
+	assertEqual(4 * TPS - game.ctx.turn.length, ping.tick)
+	assertEqual(30, execute:cursorTick())
+end)

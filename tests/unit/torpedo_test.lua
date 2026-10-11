@@ -79,7 +79,7 @@ test("fast torpedoes have about half the range of slow ones", function()
 	assertNear(0.5, (f.speed * f.maxRun) / (s.speed * s.maxRun), 0.05)
 end)
 
-test("a launch at tick 30 puts a torpedo at the sub's centre heading along the launch angle", function()
+test("a tube 1 launch at tick 30 puts a torpedo at the bow tip, pointing along the sub's heading", function()
 	local ctx = executing(nil, { { tick = 30, order = Orders.torpedo(1, math.rad(10), "slow", 200) } })
 	local sub = ctx.pools.subs[1]
 	local subBody = Bodies.get(ctx.bodies, sub.bodyId)
@@ -91,14 +91,41 @@ test("a launch at tick 30 puts a torpedo at the sub's centre heading along the l
 	assertEqual(1, #ctx.pools.torpedoes)
 	local torpedo = ctx.pools.torpedoes[1]
 	local body = Bodies.get(ctx.bodies, torpedo.bodyId)
-	assertEqual(subBody.x, body.x)
-	assertEqual(subBody.y, body.y)
-	assertNear(Config.torpedo.speeds.slow.speed * math.cos(math.rad(10)), body.vx)
-	assertNear(Config.torpedo.speeds.slow.speed * math.sin(math.rad(10)), body.vy)
+	assertNear(subBody.x + Config.sub.length / 2, body.x, 1e-9)
+	assertNear(subBody.y, body.y, 1e-9)
+	assertNear(0, body.angle, 1e-9)
 	assertEqual("player", torpedo.owner)
 	assertEqual(30, torpedo.launchTick)
-	assertFalse(Bodies.get(ctx.bodies, sub.bodyId) == nil)
 	assertFalse(require("src.game.components.tube").ready(sub.tubes[1]), "the tube is reloading")
+end)
+
+test("a bow launch 90 degrees off the heading turns at the torpedo turn rate, then runs straight on its angle", function()
+	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, -math.pi / 2, "slow", 200) } })
+	stepTo(ctx, 1)
+	local body = Bodies.get(ctx.bodies, ctx.pools.torpedoes[1].bodyId)
+	local turnTicks = math.ceil((math.pi / 2) / Config.torpedo.turnRate)
+
+	stepTo(ctx, 2)
+	assertNear(-Config.torpedo.turnRate, body.angle, 1e-9, "one tick's turn")
+	stepTo(ctx, 1 + turnTicks)
+	assertNear(-math.pi / 2, body.angle, 1e-9, "settled on its angle")
+	local x = body.x
+	stepTo(ctx, 1 + turnTicks + 20)
+	assertNear(-math.pi / 2, body.angle, 1e-9)
+	assertNear(x, body.x, 1e-9, "straight up after the turn")
+	assertTrue(x > 216 + 10, "the turn carried it forward of the bow tip")
+end)
+
+test("a tube 2 launch at the heading plus pi leaves the stern tip and runs straight astern", function()
+	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(2, math.pi, "slow", 200) } })
+	stepTo(ctx, 1)
+	local body = Bodies.get(ctx.bodies, ctx.pools.torpedoes[1].bodyId)
+	assertNear(200 - Config.sub.length / 2, body.x, 1e-9, "at the stern tip")
+
+	stepTo(ctx, 41)
+
+	assertNear(300, body.y, 1e-9, "no turn")
+	assertNear(200 - Config.sub.length / 2 - 40 * Config.torpedo.speeds.slow.speed * Config.dt, body.x, 1e-6)
 end)
 
 test("the fuse detonates at exactly launch tick + fuse ticks", function()
@@ -112,7 +139,7 @@ test("the fuse detonates at exactly launch tick + fuse ticks", function()
 end)
 
 test("rock contact detonates the torpedo early, just short of the rock", function()
-	-- Straight down from y = 300 at the seabed (y = 600), with a long fuse.
+	-- Turned straight down from y = 300 at the seabed (y = 600), with a long fuse.
 	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, math.pi / 2, "slow", 540) } })
 
 	local tick, x, y = runUntilGone(ctx)
@@ -120,7 +147,6 @@ test("rock contact detonates the torpedo early, just short of the rock", functio
 	assertTrue(tick < 1 + 600, "detonated before its fuse")
 	assertEqual(1, #ctx.blasts)
 	assertEqual(tick, ctx.blasts[1].tick)
-	assertNear(200, ctx.blasts[1].x, 1e-9)
 	assertEqual(y, ctx.blasts[1].y, "at its last pose in the water")
 	-- Hulls collide cell by cell, so the nose ends within a cell of the seabed line.
 	assertTrue(math.abs(y + Config.torpedo.length / 2 - 600) <= Config.grid.cellSize, "nose against the seabed: " .. y)
@@ -300,7 +326,7 @@ local function previewAndRun(lvl, course, tick, order)
 	local ctx = Match.new(lvl or level(), Config, 1, { ai = false })
 	local orders = { course, { tick = tick, order = order } }
 	local path = Predict.path(ctx, "player", orders)
-	local preview = Predict.torpedo(ctx, path[tick].x, path[tick].y, order)
+	local preview = Predict.torpedo(ctx, path[tick], order)
 
 	Turn.submit(ctx, "player", orders)
 	Turn.submit(ctx, "enemy", {})
@@ -360,7 +386,7 @@ test("previewing a torpedo changes nothing in the match", function()
 	local ctx = Match.new(level(), Config, 1, { ai = false })
 	local slots = ctx.bodies.slotCount
 
-	Predict.torpedo(ctx, 200, 300, Orders.torpedo(1, 0, "slow", 540))
+	Predict.torpedo(ctx, { x = 200, y = 300, angle = 0 }, Orders.torpedo(1, 0, "slow", 540))
 
 	assertEqual(slots, ctx.bodies.slotCount)
 	assertEqual(0, #ctx.pools.torpedoes)

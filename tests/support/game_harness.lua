@@ -5,8 +5,8 @@
 -- the e2e tier, which supplies a real `love`.
 local Match = require("src.game.match")
 local Config = require("src.game.config")
-local SonarView = require("src.app.render.sonar_view")
-local Debug = require("src.app.render.debug")
+local Frame = require("src.app.render.frame")
+local Camera = require("src.app.camera")
 local Input = require("src.app.input")
 local PlanState = require("src.app.states.plan_state")
 
@@ -24,31 +24,35 @@ function GameHarness.startMatch(level, opts)
 
 	local ctx = Match.new(level, opts.config or Config, opts.seed or DEFAULT_SEED)
 	-- Same state flow as the app: plan phase first, then execute, and so on.
-	local game = { ctx = ctx, input = Input.new(), state = PlanState.new(ctx, "player") }
+	local game = { ctx = ctx, input = Input.new(), camera = Camera.new(), state = PlanState.new(ctx, "player") }
 
-	-- Same key handling as the app's love.keypressed.
+	-- Same key handling as the app's love.keypressed / love.keyreleased.
 	function game:keypressed(key)
 		Input.keypressed(self.input, key)
 	end
 
-	-- Fake mouse: coordinates are world px (what the app passes on after
-	-- undoing the screen fit). Forwarded only if the current state takes input.
+	function game:keyreleased(key)
+		Input.keyreleased(self.input, key)
+	end
+
+	-- Fake mouse: coordinates are screen (virtual) px, what the app passes on
+	-- after undoing the screen fit; Input adds the world pair under the camera.
+	-- Forwarded only if the current state takes input.
 	function game:mousepressed(x, y, button)
-		if self.state.mousepressed then
-			self.state:mousepressed(x, y, button)
-		end
+		Input.mousepressed(self.input, self.camera, self.state, x, y, button)
 	end
 
 	function game:mousemoved(x, y)
-		if self.state.mousemoved then
-			self.state:mousemoved(x, y)
-		end
+		Input.mousemoved(self.input, self.camera, self.state, x, y)
 	end
 
 	function game:mousereleased(x, y, button)
-		if self.state.mousereleased then
-			self.state:mousereleased(x, y, button)
-		end
+		Input.mousereleased(self.input, self.camera, self.state, x, y, button)
+	end
+
+	-- Wheel notches (positive = in) at screen point (x, y).
+	function game:wheelmoved(x, y, notches)
+		Input.wheelmoved(self.input, self.camera, x, y, notches)
 	end
 
 	-- One frame per call; FrameStepper always passes 1/60 s, so an execute
@@ -58,13 +62,7 @@ function GameHarness.startMatch(level, opts)
 	end
 
 	function game:draw()
-		-- Same layers as the app: the player's perception, the state, then debug.
-		local replay = self.state.replayPerception and self.state:replayPerception()
-		SonarView.draw(replay or Match.perceptionOf(ctx, "player"), ctx.grid.cellSize)
-		self.state:draw()
-		if self.input.debug and not replay then
-			Debug.draw(ctx)
-		end
+		Frame.draw(ctx, self.state, self.camera, self.input.debug)
 	end
 
 	if opts.real and _G.E2E_ON_GAME_STARTED then

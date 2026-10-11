@@ -1,5 +1,6 @@
--- Torpedo plan preview: for each planned launch, its straight run from the
--- launch point (Predict.torpedo, via PlanState.previews) with a tick mark
+-- Torpedo plan preview: for each planned launch, its run from the launch
+-- point (out of the tube, the turn onto its angle, then straight; drawn as
+-- the curve of its tick-by-tick points) (Predict.torpedo, via PlanState.previews) with a tick mark
 -- where it arms and where it ends (a blast-radius circle where it detonates,
 -- a cross for a dud). The launch being edited also gets its aim point (the
 -- clamped point, PlanState:aimPoint) and the chosen speed. Earlier turns'
@@ -37,8 +38,8 @@ local function polyline(points, from, to, x, y)
 	end
 end
 
--- A run line from (lx, ly) along `angle`, with its arming and end marks.
-local function drawRun(state, preview, lx, ly, angle, alpha)
+-- A run line from (lx, ly) through its points, with its arming and end marks.
+local function drawRun(state, preview, lx, ly, alpha)
 	local points, endTick = preview.points, preview.endTick or #preview.points
 	if not lx or #points == 0 then
 		return
@@ -48,7 +49,14 @@ local function drawRun(state, preview, lx, ly, angle, alpha)
 
 	if preview.armedAt and preview.armedAt <= endTick then
 		local a = points[preview.armedAt]
-		local nx, ny = -math.sin(angle) * 5, math.cos(angle) * 5
+		-- Across the run where it arms (its direction over that tick).
+		local b = points[preview.armedAt - 1] or { x = lx, y = ly }
+		local dx, dy = a.x - b.x, a.y - b.y
+		local len = math.sqrt(dx * dx + dy * dy)
+		local nx, ny = 0, 5
+		if len > 0 then
+			nx, ny = -dy / len * 5, dx / len * 5
+		end
 		setColor(RUN, alpha)
 		love.graphics.line(a.x - nx, a.y - ny, a.x + nx, a.y + ny)
 	end
@@ -66,13 +74,13 @@ end
 
 local function drawLaunch(state, entry, preview, alpha)
 	local lx, ly = state:launchPoint(entry)
-	drawRun(state, preview, lx, ly, entry.order.angle, alpha)
+	drawRun(state, preview, lx, ly, alpha)
 end
 
 function TorpedoPlan.draw(state)
 	-- Earlier turns' own torpedoes still running: dimmed, never edited.
 	for _, flight in ipairs(state.inFlight) do
-		drawRun(state, flight.preview, flight.x, flight.y, flight.angle, DIM)
+		drawRun(state, flight.preview, flight.x, flight.y, DIM)
 	end
 	for _, entry in ipairs(state.schedule) do
 		local preview = state.previews[entry]
