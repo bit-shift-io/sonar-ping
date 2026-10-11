@@ -5,17 +5,17 @@ local Config = require("src.game.config")
 local Turn = require("src.game.turn")
 local Orders = require("src.game.orders")
 
--- Stopped subs facing each other 800 px apart, mirror images about x = 640.
+-- Stopped subs facing each other 400 px apart, mirror images about x = 640.
 local LEVEL = {
 	seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 	subs = {
-		player = { x = 240, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = "stop" } },
-		enemy = { x = 1040, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = "stop" } },
+		player = { x = 440, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = Config.speeds.stop.speed } },
+		enemy = { x = 840, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = Config.speeds.stop.speed } },
 	},
 }
 
-local AT_ENEMY = { { tick = 1, order = Orders.torpedo(1, 0, "fast", 600) } }
-local AT_PLAYER = { { tick = 1, order = Orders.torpedo(1, math.pi, "fast", 600) } }
+local AT_ENEMY = { { tick = 1, order = Orders.torpedo(1, 0, "fast", 160) } }
+local AT_PLAYER = { { tick = 1, order = Orders.torpedo(1, math.pi, "fast", 160) } }
 
 -- Steps until the match stops; returns the number of ticks it ran.
 local function play(playerOrders, enemyOrders)
@@ -71,7 +71,7 @@ end)
 
 test("with two enemies, sinking one leaves the match undecided", function()
 	local config = setmetatable({ match = { enemies = 2 } }, { __index = Config })
-	local level = { seabed = LEVEL.seabed, subs = LEVEL.subs, extraEnemies = { { x = 1040, y = 150, order = LEVEL.subs.enemy.order } } }
+	local level = { seabed = LEVEL.seabed, subs = LEVEL.subs, extraEnemies = { { x = 840, y = 150, order = LEVEL.subs.enemy.order } } }
 	local ctx = Match.new(level, config, 1, { ai = false })
 	Turn.submit(ctx, "player", AT_ENEMY)
 	Turn.submit(ctx, "enemy", {})

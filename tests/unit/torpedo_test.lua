@@ -13,8 +13,8 @@ local function level(overrides)
 	local t = {
 		seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 		subs = {
-			player = { x = 200, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = "stop" } },
-			enemy = { x = 1000, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = "stop" } },
+			player = { x = 200, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = Config.speeds.stop.speed } },
+			enemy = { x = 1000, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = Config.speeds.stop.speed } },
 		},
 	}
 	for k, v in pairs(overrides or {}) do
@@ -58,14 +58,25 @@ local function runUntilGone(ctx)
 end
 
 test("a torpedo order needs a real tube, a configured speed, a number angle and a fuse in range", function()
-	assertTrue(Orders.validate(Orders.torpedo(1, 0.5, "fast", 120), Config))
-	assertTrue(Orders.validate(Orders.torpedo(2, -3, "slow", Config.torpedo.maxFuse), Config))
-	assertFalse(Orders.validate(Orders.torpedo(3, 0, "fast", 120), Config), "tube 3")
+	assertTrue(Orders.validate(Orders.torpedo(1, 0.5, "slow", 120), Config))
+	assertTrue(Orders.validate(Orders.torpedo(2, -3, "slow", Config.torpedo.speeds.slow.maxRun), Config))
+	assertFalse(Orders.validate(Orders.torpedo(3, 0, "slow", 120), Config), "tube 3")
 	assertFalse(Orders.validate(Orders.torpedo(1, 0, "warp", 120), Config), "speed")
-	assertFalse(Orders.validate(Orders.torpedo(1, "east", "fast", 120), Config), "angle")
+	assertFalse(Orders.validate(Orders.torpedo(1, "east", "slow", 120), Config), "angle")
 	assertFalse(Orders.validate(Orders.torpedo(1, 0, "fast", 0), Config), "fuse 0")
 	assertFalse(Orders.validate(Orders.torpedo(1, 0, "fast", 1.5), Config), "fractional fuse")
-	assertFalse(Orders.validate(Orders.torpedo(1, 0, "fast", Config.torpedo.maxFuse + 1), Config), "fuse too long")
+	assertFalse(Orders.validate(Orders.torpedo(1, 0, "slow", Config.torpedo.speeds.slow.maxRun + 1), Config), "fuse too long")
+end)
+
+test("a fuse over its speed's max run fails validation; at max run it passes", function()
+	local fast = Config.torpedo.speeds.fast
+	assertTrue(Orders.validate(Orders.torpedo(1, 0, "fast", fast.maxRun), Config))
+	assertFalse(Orders.validate(Orders.torpedo(1, 0, "fast", fast.maxRun + 1), Config))
+end)
+
+test("fast torpedoes have about half the range of slow ones", function()
+	local s, f = Config.torpedo.speeds.slow, Config.torpedo.speeds.fast
+	assertNear(0.5, (f.speed * f.maxRun) / (s.speed * s.maxRun), 0.05)
 end)
 
 test("a launch at tick 30 puts a torpedo at the sub's centre heading along the launch angle", function()
@@ -91,7 +102,7 @@ test("a launch at tick 30 puts a torpedo at the sub's centre heading along the l
 end)
 
 test("the fuse detonates at exactly launch tick + fuse ticks", function()
-	local ctx = executing(nil, { { tick = 10, order = Orders.torpedo(1, -math.rad(20), "fast", 150) } })
+	local ctx = executing(nil, { { tick = 10, order = Orders.torpedo(1, -math.rad(20), "slow", 150) } })
 	stepTo(ctx, 10)
 
 	local tick = runUntilGone(ctx)
@@ -102,7 +113,7 @@ end)
 
 test("rock contact detonates the torpedo early, just short of the rock", function()
 	-- Straight down from y = 300 at the seabed (y = 600), with a long fuse.
-	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, math.pi / 2, "fast", 600) } })
+	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, math.pi / 2, "slow", 540) } })
 
 	local tick, x, y = runUntilGone(ctx)
 
@@ -119,7 +130,7 @@ end)
 test("a torpedo that hits rock before it has run armDistance is a dud", function()
 	local lvl = level()
 	lvl.subs.player = { x = 200, y = 570, order = lvl.subs.player.order }
-	local ctx = executing(lvl, { { tick = 1, order = Orders.torpedo(1, math.pi / 2, "fast", 600) } })
+	local ctx = executing(lvl, { { tick = 1, order = Orders.torpedo(1, math.pi / 2, "slow", 540) } })
 
 	runUntilGone(ctx)
 
@@ -138,7 +149,7 @@ end)
 
 test("an armed torpedo detonates on contact with a hull, before its fuse", function()
 	-- Due east at the stopped enemy 800 px away; the fuse would carry it past.
-	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, 0, "fast", 600) } })
+	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, 0, "slow", 540) } })
 
 	local tick = runUntilGone(ctx)
 
@@ -149,7 +160,7 @@ test("an armed torpedo detonates on contact with a hull, before its fuse", funct
 end)
 
 test("the firing sub's own hull does not set off its torpedo at launch", function()
-	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, 0, "fast", 100) } })
+	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, 0, "slow", 100) } })
 
 	local tick = runUntilGone(ctx)
 
@@ -219,7 +230,7 @@ test("a ping echoes off a running torpedo's hull", function()
 	local ctx = executing(
 		nil,
 		{ { tick = 1, order = Orders.ping() } },
-		{ { tick = 1, order = Orders.torpedo(1, math.pi, "slow", 600) } }
+		{ { tick = 1, order = Orders.torpedo(1, math.pi, "slow", 540) } }
 	)
 
 	-- The wavefront (1 cell/tick) meets the torpedo (0.5 cells/tick) near
@@ -235,6 +246,49 @@ test("a ping echoes off a running torpedo's hull", function()
 		end
 	end
 	assertTrue(found, "an echo came back from the torpedo")
+end)
+
+test("a torpedo's run, launch and blast arrive flagged for both observers; a sub's noise does not", function()
+	local ctx = executing(nil, { { tick = 1, order = Orders.torpedo(1, -math.rad(60), "fast", 60) } })
+
+	local arrivals = arrivalsUntil(ctx, 400)
+
+	for _, slot in ipairs({ "player", "enemy" }) do
+		local seen = {}
+		for _, c in ipairs(arrivals[slot]) do
+			seen[c.kind] = true
+			assertEqual(true, c.torpedo, slot .. " " .. c.kind .. " contact is flagged")
+		end
+		assertTrue(seen.noise and seen.blast, slot .. " heard the run and the blast")
+	end
+end)
+
+test("a ping's echo off a torpedo is flagged; echoes off rock and a sub hull are not", function()
+	-- The enemy fires west at the player; the player pings at the same tick.
+	local ctx = executing(
+		nil,
+		{ { tick = 1, order = Orders.ping() } },
+		{ { tick = 1, order = Orders.torpedo(1, math.pi, "slow", 540) } }
+	)
+
+	local arrivals = arrivalsUntil(ctx, 300)
+
+	local torpedoEchoes, otherEchoes = 0, 0
+	for _, c in ipairs(arrivals.player) do
+		if c.kind == "echo" then
+			if c.x > 100 and c.x < 240 and c.y > 70 and c.y < 80 then
+				assertEqual(true, c.torpedo, "the torpedo's echo is flagged")
+				torpedoEchoes = torpedoEchoes + 1
+			else
+				assertTrue(not c.torpedo, "an echo off rock or a sub is not flagged")
+				otherEchoes = otherEchoes + 1
+			end
+		elseif c.kind == "ping" then
+			assertTrue(not c.torpedo, "a ping origin is not flagged")
+		end
+	end
+	assertTrue(torpedoEchoes > 0, "an echo came back from the torpedo")
+	assertTrue(otherEchoes > 0, "echoes came back from rock and the enemy sub")
 end)
 
 local Predict = require("src.game.predict")
@@ -262,7 +316,7 @@ local function previewAndRun(lvl, course, tick, order)
 end
 
 test("the preview's line is the torpedo's actual run and its fuse point is the actual blast", function()
-	local course = { tick = 1, order = Orders.course("east", math.rad(20), "full") }
+	local course = { tick = 1, order = Orders.course("east", math.rad(20), Config.speeds.full.speed) }
 	local order = Orders.torpedo(2, -math.rad(15), "slow", 200)
 
 	local preview, run, ctx = previewAndRun(nil, course, 90, order)
@@ -276,12 +330,12 @@ test("the preview's line is the torpedo's actual run and its fuse point is the a
 	end
 	assertEqual(ctx.blasts[1].x, preview.detonation.x)
 	assertEqual(ctx.blasts[1].y, preview.detonation.y)
-	assertTrue(#preview.points > preview.endTick, "the line runs on past the fuse, for moving the fuse marker")
+	assertTrue(#preview.points > preview.endTick, "the preview runs on past the fuse, up to the max run")
 end)
 
 test("the preview stops at rock where the torpedo does", function()
-	local course = { tick = 1, order = Orders.course("east", 0, "half") }
-	local order = Orders.torpedo(1, math.rad(70), "fast", 800)
+	local course = { tick = 1, order = Orders.course("east", 0, Config.speeds.half.speed) }
+	local order = Orders.torpedo(1, math.rad(70), "slow", 540)
 
 	local preview, run, ctx = previewAndRun(nil, course, 30, order)
 
@@ -293,7 +347,7 @@ test("the preview stops at rock where the torpedo does", function()
 end)
 
 test("the preview shows a dud when the run ends before the torpedo arms", function()
-	local course = { tick = 1, order = Orders.course("east", 0, "stop") }
+	local course = { tick = 1, order = Orders.course("east", 0, Config.speeds.stop.speed) }
 
 	local preview, _, ctx = previewAndRun(nil, course, 1, Orders.torpedo(1, 0, "slow", 10))
 
@@ -306,7 +360,7 @@ test("previewing a torpedo changes nothing in the match", function()
 	local ctx = Match.new(level(), Config, 1, { ai = false })
 	local slots = ctx.bodies.slotCount
 
-	Predict.torpedo(ctx, 200, 300, Orders.torpedo(1, 0, "fast", 300))
+	Predict.torpedo(ctx, 200, 300, Orders.torpedo(1, 0, "slow", 540))
 
 	assertEqual(slots, ctx.bodies.slotCount)
 	assertEqual(0, #ctx.pools.torpedoes)

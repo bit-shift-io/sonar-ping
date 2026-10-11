@@ -4,7 +4,7 @@
 local Orders = {}
 
 -- Course: `heading` "east" or "west" (side view), `dive` angle in radians
--- (positive = nose down), `speed` a key of config.speeds.
+-- (positive = nose down), `speed` in px/s from 0 to config.speeds.full.speed.
 function Orders.course(heading, dive, speed)
 	return { kind = "course", heading = heading, dive = dive, speed = speed }
 end
@@ -35,8 +35,9 @@ local function validateTorpedo(order, config)
 	if config.torpedo.speeds[order.speed] == nil then
 		return false, "unknown torpedo speed: " .. tostring(order.speed)
 	end
-	if not isInteger(order.fuse) or order.fuse < 1 or order.fuse > config.torpedo.maxFuse then
-		return false, "fuse must be an integer in 1.." .. config.torpedo.maxFuse
+	local maxRun = config.torpedo.speeds[order.speed].maxRun
+	if not isInteger(order.fuse) or order.fuse < 1 or order.fuse > maxRun then
+		return false, "fuse must be an integer in 1.." .. maxRun
 	end
 	return true
 end
@@ -61,8 +62,9 @@ function Orders.validate(order, config)
 	if type(order.dive) ~= "number" or math.abs(order.dive) > config.sub.maxDive then
 		return false, "dive must be a number within the configured limit"
 	end
-	if config.speeds[order.speed] == nil then
-		return false, "unknown speed setting: " .. tostring(order.speed)
+	local full = config.speeds.full.speed
+	if type(order.speed) ~= "number" or not (order.speed >= 0 and order.speed <= full) then
+		return false, "speed must be a number in 0.." .. full
 	end
 	return true
 end

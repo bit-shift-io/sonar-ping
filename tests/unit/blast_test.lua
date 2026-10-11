@@ -9,8 +9,8 @@ local Blast = require("src.game.blast")
 local LEVEL = {
 	seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 	subs = {
-		player = { x = 200, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = "stop" } },
-		enemy = { x = 1000, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = "stop" } },
+		player = { x = 200, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = Config.speeds.stop.speed } },
+		enemy = { x = 1000, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = Config.speeds.stop.speed } },
 	},
 }
 

@@ -1,13 +1,17 @@
 -- Plan phase screen for one human slot: the match is paused (no Match.step).
 -- The turn's orders live on a timeline (render/timeline): a `schedule` of
 -- `{ tick, order }` entries, always starting with the sub's standing course at
--- tick 1. The player selects a tick by clicking the strip; the heading handle
--- and speed buttons then edit the course order at that tick (created from the
--- course in effect there if none exists), and PING toggles a ping at it.
+-- tick 1. The player selects a tick by clicking the strip; dragging the course
+-- handle then sets a course target, where the sub should end the turn, and
+-- src/game/course_solve picks heading, dive and speed for the course order at
+-- that tick (created from the course in effect there if none exists) to land
+-- as close to it as it can; dropping it on the sub plans a stop. PING
+-- toggles a ping at the selected tick.
 -- A TUBE button toggles a torpedo launch from that tube at the selected tick
 -- and makes it the launch being edited (`torpedo`; clicking a torpedo marker
--- on the strip selects it too): drag its angle handle to aim, pick its speed,
--- and drag its fuse marker along the preview line to set the fuse.
+-- on the strip selects it too): one drag anywhere off the buttons and the
+-- course handle sets its aim point, and src/game/torpedo_aim turns that into
+-- angle, speed and fuse (a point past the slow range clamps to it).
 -- Markers on the strip can be dragged to another tick, and right-clicked to
 -- delete (the tick-1 course stays). A ghost path (src/game/predict) shows the
 -- projected course, and each launch's preview its straight run and fuse
@@ -23,6 +27,8 @@ local Helm = require("src.game.components.helm")
 local Orders = require("src.game.orders")
 local Turn = require("src.game.turn")
 local Predict = require("src.game.predict")
+local CourseSolve = require("src.game.course_solve")
+local TorpedoAim = require("src.game.torpedo_aim")
 local PlanOverlay = require("src.app.render.plan_overlay")
 local Timeline = require("src.app.render.timeline")
 local Replay = require("src.app.render.replay")
@@ -34,18 +40,12 @@ PlanState.__index = PlanState
 -- UI layout in world px.
 PlanState.HANDLE_DISTANCE = 60 -- handle sits this far from the sub along the planned course
 PlanState.HANDLE_GRAB_RADIUS = 14
-PlanState.SPEEDS = { "stop", "slow", "half", "full" } -- button order, left to right
-PlanState.TORPEDO_SPEEDS = { "slow", "fast" } -- torpedo speed buttons, left to right
-PlanState.TORPEDO_HANDLE_DISTANCE = 100 -- launch angle handle, from the launch point
-PlanState.FUSE_GRAB_RADIUS = 12
 local BUTTON_Y, BUTTON_W, BUTTON_H, BUTTON_GAP = 16, 72, 32, 8
 local ROW2_Y = BUTTON_Y + BUTTON_H + BUTTON_GAP -- the torpedo buttons' row
 local TUBE_W = 112
 local EXECUTE_W = 128
 local PING_W = 96
 local REPLAY_W = 112
-
-local atan2 = math.atan2 or math.atan
 
 local function inside(rect, x, y)
 	return x >= rect.x and x <= rect.x + rect.w and y >= rect.y and y <= rect.y + rect.h
@@ -71,12 +71,15 @@ function PlanState.new(ctx, slot)
 		sub = sub,
 		-- The plan starts as the sub's standing course, from the first tick.
 		schedule = {
-			{ tick = 1, order = Orders.course(helm and helm.heading or "east", helm and helm.dive or 0, helm and helm.speed or "stop") },
+			{ tick = 1, order = Orders.course(helm and helm.heading or "east", helm and helm.dive or 0, helm and helm.speed or 0) },
 		},
 		selected = 1, -- the timeline tick the course handle, speed buttons and PING act on
-		dragging = false, -- what is being dragged: "course" or "torpedo" handle, or the "fuse" marker
+		dragging = false, -- what is being dragged: the "course" handle or the "torpedo" aim point
+		solver = nil, -- the CourseSolve for the course drag in progress
+		target = nil, -- the last course target: { order = <course order it was solved for>, x, y }
 		moving = nil, -- the schedule entry being dragged along the timeline
 		torpedo = nil, -- the torpedo launch entry being edited
+		aims = {}, -- torpedo entry -> { x, y }: the aim point dragged to, as asked
 	}, PlanState)
 	self:replan()
 	return self
@@ -129,9 +132,18 @@ end
 function PlanState:replan()
 	self.path = Predict.path(self.ctx, self.slot, self:orders())
 	self.previews = {} -- torpedo entry -> Predict.torpedo preview
+	self.aimed = {} -- torpedo entry -> TorpedoAim.solve result (clamped point, dud)
 	for _, entry in ipairs(self.schedule) do
 		if entry.order.kind == "torpedo" then
 			local x, y = self:launchPoint(entry)
+			local aim = self.aims[entry]
+			if x and aim then
+				-- The launch point moves with the course, so the order is
+				-- solved afresh for the same aim point.
+				local solved = TorpedoAim.solve(self.ctx, entry.order.tube, x, y, aim.x, aim.y)
+				entry.order.angle, entry.order.speed, entry.order.fuse = solved.order.angle, solved.order.speed, solved.order.fuse
+				self.aimed[entry] = solved
+			end
 			if x then
 				self.previews[entry] = Predict.torpedo(self.ctx, x, y, entry.order)
 			end
@@ -163,6 +175,17 @@ function PlanState:editCourse()
 	return entry.order
 end
 
+-- The course target set for the selected tick's course order and where the
+-- ghost path ends: tx, ty, ex, ey; nil when that order has no target.
+function PlanState:courseTarget()
+	local entry = entryAt(self, self.selected, "course")
+	local last = self.path[#self.path]
+	if not self.target or not entry or entry.order ~= self.target.order or not last then
+		return nil
+	end
+	return self.target.x, self.target.y, last.x, last.y
+end
+
 -- Places `order` at `tick` (selecting it), or returns false when the tick
 -- already holds an order of that kind.
 function PlanState:place(order, tick)
@@ -183,6 +206,7 @@ function PlanState:remove(entry)
 	for i, e in ipairs(self.schedule) do
 		if e == entry then
 			table.remove(self.schedule, i)
+				self.aims[entry] = nil
 			if self.torpedo == entry then
 				self.torpedo = nil
 			end
@@ -237,7 +261,13 @@ function PlanState:anchorPosition()
 	return p.x, p.y
 end
 
+-- The course handle: on the selected course order's target if it has one,
+-- else a fixed distance along its course from the anchor.
 function PlanState:handlePosition()
+	local tx, ty = self:courseTarget()
+	if tx then
+		return tx, ty
+	end
 	local x, y = self:anchorPosition()
 	if not x then
 		return nil
@@ -246,35 +276,13 @@ function PlanState:handlePosition()
 	return x + PlanState.HANDLE_DISTANCE * math.cos(angle), y + PlanState.HANDLE_DISTANCE * math.sin(angle)
 end
 
-function PlanState:speedButton(speed)
-	for i, key in ipairs(PlanState.SPEEDS) do
-		if key == speed then
-			return { x = 16 + (i - 1) * (BUTTON_W + BUTTON_GAP), y = BUTTON_Y, w = BUTTON_W, h = BUTTON_H }
-		end
-	end
-	return nil
-end
-
--- Sits right of the speed buttons, after a gap. Places or removes a ping at
--- the selected tick.
+-- Places or removes a ping at the selected tick.
 function PlanState:pingButton()
-	local x = 16 + #PlanState.SPEEDS * (BUTTON_W + BUTTON_GAP) + BUTTON_W / 2
-	return { x = x, y = BUTTON_Y, w = PING_W, h = BUTTON_H }
+	return { x = 16, y = BUTTON_Y, w = PING_W, h = BUTTON_H }
 end
 
 function PlanState:tubeButton(i)
 	return { x = 16 + (i - 1) * (TUBE_W + BUTTON_GAP), y = ROW2_Y, w = TUBE_W, h = BUTTON_H }
-end
-
--- Right of the tube buttons, after a gap.
-function PlanState:torpedoSpeedButton(speed)
-	local left = 16 + self.ctx.config.tubes.count * (TUBE_W + BUTTON_GAP) + BUTTON_W / 2
-	for i, key in ipairs(PlanState.TORPEDO_SPEEDS) do
-		if key == speed then
-			return { x = left + (i - 1) * (BUTTON_W + BUTTON_GAP), y = ROW2_Y, w = BUTTON_W, h = BUTTON_H }
-		end
-	end
-	return nil
 end
 
 -- Ticks until tube `i` is loaded, as the turn starts (own-ship knowledge).
@@ -336,18 +344,17 @@ function PlanState:replayPerception()
 	return perception and Replay.view(perception, self.replay.tick)
 end
 
--- Points the selected tick's course from the sub towards (x, y): the side picks the heading,
--- the slope the dive, clamped to the configured limit.
-function PlanState:aimAt(x, y)
-	local sx, sy = self:anchorPosition()
-	local dx, dy = x - sx, y - sy
-	if dx == 0 and dy == 0 then
-		return
-	end
-	local maxDive = self.ctx.config.sub.maxDive
+-- Sets a course target at (x, y): solves the selected tick's course order
+-- (heading, dive and speed) so the turn ends as close to it as it can.
+-- Later course orders stay as they are. One solver serves a whole drag.
+function PlanState:steerTo(x, y)
 	local course = self:editCourse()
-	course.heading = dx < 0 and "west" or "east"
-	course.dive = math.max(-maxDive, math.min(maxDive, atan2(dy, math.abs(dx))))
+	if not self.solver then
+		self.solver = CourseSolve.new(self.ctx, self.slot, self:orders(), course)
+	end
+	local solved = self.solver:solve(x, y).order
+	course.heading, course.dive, course.speed = solved.heading, solved.dive, solved.speed
+	self.target = { order = course, x = x, y = y }
 	self:replan()
 end
 
@@ -363,8 +370,8 @@ function PlanState:torpedoPreview()
 end
 
 -- Places a launch from `tube` at the selected tick (aimed along the sub's
--- projected heading there, at the slow setting and the default fuse) and
--- edits it; or, if that tube already launches at this tick, removes it.
+-- projected heading there, at the slow setting and the default fuse, until
+-- an aim drag sets them) and edits it; or, if that tube already launches at this tick, removes it.
 function PlanState:toggleTorpedo(tube)
 	local existing = entryAt(self, self.selected, "torpedo", tube)
 	if existing then
@@ -372,64 +379,32 @@ function PlanState:toggleTorpedo(tube)
 		return
 	end
 	local p = self.path[self.selected]
-	local order = Orders.torpedo(tube, p and p.angle or 0, PlanState.TORPEDO_SPEEDS[1], self.ctx.config.torpedo.defaultFuse)
+	local order = Orders.torpedo(tube, p and p.angle or 0, "slow", self.ctx.config.torpedo.defaultFuse)
 	if self:place(order, self.selected) then
 		self.torpedo = self.schedule[#self.schedule]
 		self:replan()
 	end
 end
 
-function PlanState:torpedoHandlePosition()
-	if not self.torpedo then
-		return nil
-	end
-	local x, y = self:launchPoint(self.torpedo)
-	if not x then
-		return nil
-	end
-	local angle, d = self.torpedo.order.angle, PlanState.TORPEDO_HANDLE_DISTANCE
-	return x + d * math.cos(angle), y + d * math.sin(angle)
-end
-
--- Aims the launch being edited from its launch point towards (x, y).
+-- Aims the launch being edited at (x, y): sets its aim point, from which
+-- the order's angle, speed and fuse follow.
 function PlanState:aimTorpedo(x, y)
 	local lx, ly = self:launchPoint(self.torpedo)
 	if not lx or (x == lx and y == ly) then
 		return
 	end
-	self.torpedo.order.angle = atan2(y - ly, x - lx)
+	self.aims[self.torpedo] = { x = x, y = y }
 	self:replan()
 end
 
--- The fuse marker of the launch being edited: the preview point where the
--- fuse runs out (the line's end if it meets rock first).
-function PlanState:fuseMarkerPosition()
-	local preview = self:torpedoPreview()
-	if not preview or #preview.points == 0 then
+-- The aim point of the launch being edited as the plan runs it (clamped to
+-- the slow range): x, y, whether it is a dud; nil before it is aimed.
+function PlanState:aimPoint()
+	local aimed = self.torpedo and self.aimed[self.torpedo]
+	if not aimed then
 		return nil
 	end
-	local p = preview.points[math.min(self.torpedo.order.fuse, #preview.points)]
-	return p.x, p.y
-end
-
--- Sets the fuse of the launch being edited to the tick of the preview point
--- nearest (x, y).
-function PlanState:setFuseNear(x, y)
-	local preview = self:torpedoPreview()
-	if not preview then
-		return
-	end
-	local best, bestD
-	for k, p in ipairs(preview.points) do
-		local d = (p.x - x) ^ 2 + (p.y - y) ^ 2
-		if not bestD or d < bestD then
-			best, bestD = k, d
-		end
-	end
-	if best then
-		self.torpedo.order.fuse = best
-		self:replan()
-	end
+	return aimed.x, aimed.y, aimed.dud
 end
 
 function PlanState:hasPingAtSelected()
@@ -486,13 +461,6 @@ function PlanState:mousepressed(x, y, button)
 	if button ~= 1 then
 		return
 	end
-	for _, speed in ipairs(PlanState.SPEEDS) do
-		if inside(self:speedButton(speed), x, y) then
-			self:editCourse().speed = speed
-			self:replan()
-			return
-		end
-	end
 	if inside(self:pingButton(), x, y) then
 		self:togglePing()
 		return
@@ -500,15 +468,6 @@ function PlanState:mousepressed(x, y, button)
 	for i = 1, self.ctx.config.tubes.count do
 		if inside(self:tubeButton(i), x, y) then
 			self:toggleTorpedo(i)
-			return
-		end
-	end
-	for _, speed in ipairs(PlanState.TORPEDO_SPEEDS) do
-		if inside(self:torpedoSpeedButton(speed), x, y) then
-			if self.torpedo then
-				self.torpedo.order.speed = speed
-				self:replan()
-			end
 			return
 		end
 	end
@@ -520,18 +479,14 @@ function PlanState:mousepressed(x, y, button)
 		self:toggleReplay()
 		return
 	end
-	-- Handles, topmost first: the fuse marker, the launch angle, the course.
-	local grabs = {
-		{ "fuse", PlanState.FUSE_GRAB_RADIUS, self:fuseMarkerPosition() },
-		{ "torpedo", PlanState.HANDLE_GRAB_RADIUS, self:torpedoHandlePosition() },
-		{ "course", PlanState.HANDLE_GRAB_RADIUS, self:handlePosition() },
-	}
-	for _, grab in ipairs(grabs) do
-		local hx, hy = grab[3], grab[4]
-		if hx and (x - hx) ^ 2 + (y - hy) ^ 2 <= grab[2] ^ 2 then
-			self.dragging = grab[1]
-			return
-		end
+	-- The course handle, else (with a launch being edited) an aim drag.
+	local hx, hy = self:handlePosition()
+	if hx and (x - hx) ^ 2 + (y - hy) ^ 2 <= PlanState.HANDLE_GRAB_RADIUS ^ 2 then
+		self.dragging = "course"
+		self.solver = nil
+	elseif self.torpedo then
+		self.dragging = "torpedo"
+		self:aimTorpedo(x, y)
 	end
 end
 
@@ -541,11 +496,9 @@ function PlanState:mousemoved(x, y)
 			self:scrubTo(x)
 		end
 	elseif self.dragging == "course" then
-		self:aimAt(x, y)
+		self:steerTo(x, y)
 	elseif self.dragging == "torpedo" then
 		self:aimTorpedo(x, y)
-	elseif self.dragging == "fuse" then
-		self:setFuseNear(x, y)
 	elseif self.moving then
 		self:move(self.moving, Timeline.tickAt(x, self.ctx.turn.length))
 	end
@@ -557,6 +510,7 @@ function PlanState:mousereleased(x, y, button)
 	end
 	if button == 1 then
 		self.dragging = false
+		self.solver = nil
 		self.moving = nil
 	end
 end

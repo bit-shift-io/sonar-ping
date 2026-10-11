@@ -17,8 +17,8 @@ local ALLOWED = { "^src%.core%.", "^src%.sim%.grid$", "^src%.game%.orders$", "^s
 local LEVEL = {
 	seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 	subs = {
-		player = { x = 360, y = 300, order = Orders.course("east", 0, "slow") },
-		enemy = { x = 600, y = 300, order = Orders.course("west", 0, "stop") },
+		player = { x = 360, y = 300, order = Orders.course("east", 0, Config.speeds.slow.speed) },
+		enemy = { x = 600, y = 300, order = Orders.course("west", 0, Config.speeds.stop.speed) },
 	},
 }
 

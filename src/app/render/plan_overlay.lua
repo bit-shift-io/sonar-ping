@@ -1,7 +1,7 @@
--- Plan phase overlay: the player's own sub marker, heading handle, ghost path
--- with a tick mark per second and a marker per scheduled order, speed buttons,
--- the PING button, the torpedo previews (render/torpedo_plan), tube and
--- torpedo speed buttons, the turn timeline and Execute. Reads only the
+-- Plan phase overlay: the player's own sub marker, course handle, ghost path
+-- with a tick mark per second and a marker per scheduled order, the course
+-- target and the achieved end of turn when they differ, the PING button, the
+-- torpedo previews (render/torpedo_plan), the tube buttons, the turn timeline and Execute. Reads only the
 -- planning slot's own sub (own-ship knowledge), never the enemy. Draws in
 -- world px; the caller applies the screen fit. No `love.*` at load time.
 local Timeline = require("src.app.render.timeline")
@@ -15,6 +15,8 @@ local HANDLE = { 1.0, 0.9, 0.3, 1 }
 local BUTTON = { 0.6, 1.0, 0.6, 1 }
 local BUTTON_FILL = { 0.1, 0.35, 0.15, 1 }
 local MARK_HALF = 3
+local TARGET_HALF = 7 -- the course target's cross
+local END_RADIUS = 5 -- the achieved end of turn's ring
 
 local function button(rect, label, selected)
 	if selected then
@@ -54,10 +56,25 @@ local function ghostPath(state, sx, sy)
 	Timeline.drawGhostMarkers(state.schedule, path)
 end
 
+-- Marks the course target (a cross) and where the ghost path actually ends
+-- (a ring) when they are more than a cell apart.
+local function courseTarget(state)
+	local tx, ty, ex, ey = state:courseTarget()
+	if not tx or (tx - ex) ^ 2 + (ty - ey) ^ 2 <= state.ctx.config.grid.cellSize ^ 2 then
+		return
+	end
+	love.graphics.setColor(HANDLE)
+	love.graphics.line(tx - TARGET_HALF, ty - TARGET_HALF, tx + TARGET_HALF, ty + TARGET_HALF)
+	love.graphics.line(tx - TARGET_HALF, ty + TARGET_HALF, tx + TARGET_HALF, ty - TARGET_HALF)
+	love.graphics.setColor(MARK)
+	love.graphics.circle("line", ex, ey, END_RADIUS)
+end
+
 function PlanOverlay.draw(state)
 	local sx, sy = state:subPosition()
 	if sx then
 		ghostPath(state, sx, sy)
+		courseTarget(state)
 		local hx, hy = state:handlePosition()
 		local ax, ay = state:anchorPosition()
 		love.graphics.setColor(HANDLE)
@@ -67,18 +84,12 @@ function PlanOverlay.draw(state)
 	end
 	TorpedoPlan.draw(state)
 
-	for _, speed in ipairs(state.SPEEDS) do
-		button(state:speedButton(speed), speed:upper(), speed == state:course().speed)
-	end
 	button(state:pingButton(), "PING", state:hasPingAtSelected())
 	local editing = state.torpedo and state.torpedo.order
 	for i = 1, state.ctx.config.tubes.count do
 		local reload = state:tubeReload(i)
 		local label = reload > 0 and string.format("TUBE %d  %.1fs", i, reload * state.ctx.config.dt) or "TUBE " .. i
 		button(state:tubeButton(i), label, editing and editing.tube == i)
-	end
-	for _, speed in ipairs(state.TORPEDO_SPEEDS) do
-		button(state:torpedoSpeedButton(speed), "T-" .. speed:upper(), editing and editing.speed == speed)
 	end
 	button(state:executeButton(), "EXECUTE", false)
 	if state:replayAvailable() then

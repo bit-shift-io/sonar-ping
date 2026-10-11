@@ -32,7 +32,7 @@ Domain terms for Sonar Ping. Code, docs, and conversation use these words with t
 
 ## Contact
 - **Definition:** A perceived cell or group of cells, with its arrival tick and age.
-- **Boundary:** A contact shows where something was, never where it is.
+- **Boundary:** A contact shows where something was, never where it is. It also records whether a torpedo produced it; nothing distinguishes a sub from rock.
 
 ## Passive
 - **Definition:** Always-on listening. Perceives noisy emissions only.
@@ -93,3 +93,15 @@ Domain terms for Sonar Ping. Code, docs, and conversation use these words with t
 ## Debug view
 - **Definition:** A toggled overlay drawing true state over the player view.
 - **Boundary:** The only renderer allowed to read true state.
+
+## Course target
+- **Definition:** The point a player drags the course handle to: where the sub should end the turn.
+- **Boundary:** Planning UI only. The edited course order is solved to land as close as possible; the sim sees only the order.
+
+## Aim point
+- **Definition:** The point a player drags a torpedo launch to: where it should detonate.
+- **Boundary:** Sets angle, speed and fuse. Clamped to the slow speed's max run.
+
+## Max run
+- **Definition:** The longest run, in ticks, a torpedo speed setting allows.
+- **Boundary:** Fast runs shorter than slow. A fuse never exceeds its speed's max run.

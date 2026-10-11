@@ -69,7 +69,7 @@ end
 -- launching sub's position after its launch tick, e.g. Predict.path's point
 -- for that tick). Hulls are unknown to a plan, so contact with them is not
 -- previewed. `world` needs only `config` and `grid` (ctx will do). Returns:
---   points     `{ x, y }` after each tick of running, up to maxFuse ticks or
+--   points     `{ x, y }` after each tick of running, up to the speed's max run in ticks or
 --              the tick it meets rock, whatever the fuse (the line the fuse
 --              marker slides along);
 --   ends       "fuse" or "rock": what ends the run;
@@ -84,7 +84,7 @@ function Predict.torpedo(world, x, y, order)
 	local torpedo = { launchTick = 0, fuse = order.fuse, startX = x, startY = y, armed = false }
 	local preview = { points = {} }
 
-	for k = 1, config.torpedo.maxFuse do
+	for k = 1, config.torpedo.speeds[order.speed].maxRun do
 		Integrate.step(store, config.dt)
 		Collide.resolve(store, world.grid)
 		preview.points[k] = { x = body.x, y = body.y }

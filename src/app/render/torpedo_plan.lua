@@ -1,17 +1,16 @@
 -- Torpedo plan preview: for each planned launch, its straight run from the
 -- launch point (Predict.torpedo, via PlanState.previews) with a tick mark
--- where it arms, its fuse marker (a blast-radius circle where it detonates, a
--- cross for a dud), and the line on past the fuse, dim, for sliding the fuse
--- marker along. The launch being edited also gets its angle handle. Reads
--- only the planning slot's own sub and plan (own-ship knowledge), never the
--- enemy. Draws in world px; the caller applies the screen fit. No `love.*`
--- at load time.
+-- where it arms and where it ends (a blast-radius circle where it detonates,
+-- a cross for a dud). The launch being edited also gets its aim point (the
+-- clamped point, PlanState:aimPoint) and the chosen speed. Reads only the
+-- planning slot's own sub and plan (own-ship knowledge), never the enemy.
+-- Draws in world px; the caller applies the screen fit. No `love.*` at load
+-- time.
 local TorpedoPlan = {}
 
 local RUN = { 1.0, 0.45, 0.3, 0.8 }
-local BEYOND = { 1.0, 0.45, 0.3, 0.2 }
 local FUSE = { 1.0, 0.75, 0.3, 1 }
-local HANDLE = { 1.0, 0.9, 0.3, 1 }
+local AIM = { 1.0, 0.9, 0.3, 1 }
 local DIM = 0.45 -- alpha factor for launches other than the one being edited
 local FUSE_MARK = 7
 
@@ -42,8 +41,6 @@ local function drawLaunch(state, entry, preview, alpha)
 	end
 	setColor(RUN, alpha)
 	polyline(points, 1, endTick, lx, ly)
-	setColor(BEYOND, alpha)
-	polyline(points, endTick, #points)
 
 	if preview.armedAt and preview.armedAt <= endTick then
 		local a = points[preview.armedAt]
@@ -61,7 +58,6 @@ local function drawLaunch(state, entry, preview, alpha)
 		love.graphics.line(f.x - FUSE_MARK, f.y - FUSE_MARK, f.x + FUSE_MARK, f.y + FUSE_MARK)
 		love.graphics.line(f.x - FUSE_MARK, f.y + FUSE_MARK, f.x + FUSE_MARK, f.y - FUSE_MARK)
 	end
-	love.graphics.rectangle(state.dragging == "fuse" and entry == state.torpedo and "fill" or "line", f.x - FUSE_MARK, f.y - FUSE_MARK, FUSE_MARK * 2, FUSE_MARK * 2)
 end
 
 function TorpedoPlan.draw(state)
@@ -74,11 +70,12 @@ function TorpedoPlan.draw(state)
 	local preview = state:torpedoPreview()
 	if preview then
 		drawLaunch(state, state.torpedo, preview, 1)
-		local lx, ly = state:launchPoint(state.torpedo)
-		local hx, hy = state:torpedoHandlePosition()
-		love.graphics.setColor(HANDLE)
-		love.graphics.line(lx, ly, hx, hy)
-		love.graphics.circle(state.dragging == "torpedo" and "fill" or "line", hx, hy, 8)
+		local ax, ay, dud = state:aimPoint()
+		if ax then
+			love.graphics.setColor(AIM)
+			love.graphics.circle(state.dragging == "torpedo" and "fill" or "line", ax, ay, 8)
+			love.graphics.print(string.format("%s%s", state.torpedo.order.speed:upper(), dud and "  DUD" or ""), ax + 12, ay - 7)
+		end
 	end
 	love.graphics.setColor(1, 1, 1, 1)
 end

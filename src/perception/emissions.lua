@@ -1,5 +1,5 @@
 -- Sparse ring history of dynamic emissions (ADR 0002): one bucket per tick,
--- each an array of `{ tick, cx, cy, kind, level }`. Only moving or noisy cells
+-- each an array of `{ tick, cx, cy, kind, level, torpedo }`. Only moving or noisy cells
 -- are recorded; terrain is static and lives in the level grid. A bucket is
 -- overwritten when its slot comes round again, so history drops old ticks
 -- deterministically. `kind` is "noise" for now; pings will add their own kind.
@@ -23,7 +23,8 @@ local function slot(history, tick)
 end
 
 -- Records cell (cx, cy) emitting at `tick`. Ticks are recorded in order.
-function Emissions.record(history, tick, cx, cy, kind, level)
+-- `torpedo` (true or nil) marks an emission a torpedo produced.
+function Emissions.record(history, tick, cx, cy, kind, level, torpedo)
 	local i = slot(history, tick)
 	local bucket = history.buckets[i]
 	if history.ticks[i] ~= tick then
@@ -31,7 +32,7 @@ function Emissions.record(history, tick, cx, cy, kind, level)
 		history.buckets[i] = bucket
 		history.ticks[i] = tick
 	end
-	bucket[#bucket + 1] = { tick = tick, cx = cx, cy = cy, kind = kind, level = level }
+	bucket[#bucket + 1] = { tick = tick, cx = cx, cy = cy, kind = kind, level = level, torpedo = torpedo }
 end
 
 -- The emissions recorded at `tick`, or nil if none were or they were dropped.

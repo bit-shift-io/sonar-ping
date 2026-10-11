@@ -9,13 +9,13 @@ local Ai = require("src.game.ai.ai")
 
 -- Flat seabed at y = 600; player and enemy level with each other, 800 px
 -- (200 cells) apart in open water. `playerSpeed` and `enemySpeed` default to
--- "stop" (silent).
+-- 0 (stopped, silent).
 local function level(playerSpeed, enemySpeed)
 	return {
 		seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 		subs = {
-			player = { x = 200, y = 300, order = Orders.course("east", 0, playerSpeed or "stop") },
-			enemy = { x = 1000, y = 300, order = Orders.course("west", 0, enemySpeed or "stop") },
+			player = { x = 200, y = 300, order = Orders.course("east", 0, playerSpeed or 0) },
+			enemy = { x = 1000, y = 300, order = Orders.course("west", 0, enemySpeed or 0) },
 		},
 	}
 end
@@ -52,11 +52,11 @@ test("the AI closes on the origin of the player's ping", function()
 	assertEqual(1, #courses)
 	assertEqual("west", courses[1].order.heading, "towards the ping at x = 200")
 	assertNear(0, courses[1].order.dive, 0.05, "level with it")
-	assertEqual(Config.ai.closeSpeed, courses[1].order.speed)
+	assertEqual(Config.speeds[Config.ai.closeSpeed].speed, courses[1].order.speed)
 end)
 
 test("the AI ignores its own noise: a lone sub sailing on hears no contact to close on", function()
-	local ctx = Match.new(level("stop", "slow"), Config, 1)
+	local ctx = Match.new(level(Config.speeds.stop.speed, Config.speeds.slow.speed), Config, 1)
 
 	playTurn(ctx)
 
@@ -89,13 +89,13 @@ test("the AI hears echoes of its own ping off the player and closes on them", fu
 	local courses = ofKind(ctx.turn.queues.enemy, "course")
 	assertEqual(1, #courses)
 	assertEqual("west", courses[1].order.heading)
-	assertEqual(Config.ai.closeSpeed, courses[1].order.speed)
+	assertEqual(Config.speeds[Config.ai.closeSpeed].speed, courses[1].order.speed)
 end)
 
-test("a noisy target inside torpedo range draws a predicted shot", function()
-	-- The player runs slowly east, 100 cells off: inside config.ai.fireRange.
-	local lvl = level("slow")
-	lvl.subs.enemy.x = 600
+test("a noisy target inside slow torpedo range but beyond fast range draws a slow shot", function()
+	-- The player runs slowly east, 175 cells off.
+	local lvl = level(Config.speeds.slow.speed)
+	lvl.subs.enemy.x = 900
 	local ctx = Match.new(lvl, Config, 1)
 
 	playTurn(ctx)
@@ -105,10 +105,27 @@ test("a noisy target inside torpedo range draws a predicted shot", function()
 	assertEqual(1, shots[1].tick)
 	assertTrue(Orders.validate(shots[1].order, Config))
 	assertTrue(math.cos(shots[1].order.angle) < 0, "fired west, at the player")
+	assertEqual("slow", shots[1].order.speed)
 end)
 
-test("a target heard beyond torpedo range draws no shot", function()
-	local ctx = Match.new(level("slow"), Config, 1)
+test("a noisy target within fast torpedo range draws a fast shot", function()
+	local lvl = level(Config.speeds.slow.speed)
+	lvl.subs.enemy.x = 600
+	local ctx = Match.new(lvl, Config, 1)
+
+	playTurn(ctx)
+
+	local shots = ofKind(ctx.turn.queues.enemy, "torpedo")
+	assertEqual(1, #shots)
+	assertEqual("fast", shots[1].order.speed)
+	assertTrue(Orders.validate(shots[1].order, Config))
+end)
+
+test("a target heard beyond slow torpedo range draws no shot", function()
+	local lvl = level(Config.speeds.slow.speed)
+	lvl.subs.enemy.x = 1250
+	lvl.subs.player.x = 50
+	local ctx = Match.new(lvl, Config, 1)
 
 	playTurn(ctx)
 
@@ -116,7 +133,7 @@ test("a target heard beyond torpedo range draws no shot", function()
 end)
 
 test("the AI fires only from a loaded tube", function()
-	local lvl = level("slow")
+	local lvl = level(Config.speeds.slow.speed)
 	lvl.subs.enemy.x = 600
 	local ctx = Match.new(lvl, Config, 1, { ai = false })
 	local enemy = ctx.pools.subs[2]
@@ -142,17 +159,17 @@ test("after hearing a launch the AI evades: full speed, turning away from it, th
 	local courses = ofKind(ctx.turn.queues.enemy, "course")
 	assertEqual(2, #courses)
 	assertEqual(1, courses[1].tick)
-	assertEqual(Config.ai.evadeSpeed, courses[1].order.speed)
+	assertEqual(Config.speeds[Config.ai.evadeSpeed].speed, courses[1].order.speed)
 	assertEqual("east", courses[1].order.heading, "away from the launch at x = 200")
 	assertTrue(math.abs(courses[1].order.dive) > 0, "changing depth too")
 	assertEqual(Config.ai.evadeTicks, courses[2].tick)
 	assertEqual(0, courses[2].order.dive)
-	assertEqual(Config.ai.quietSpeed, courses[2].order.speed)
+	assertEqual(Config.speeds[Config.ai.quietSpeed].speed, courses[2].order.speed)
 end)
 
 test("the same seed and the same perception give the same orders", function()
-	local a = Match.new(level("slow"), Config, 7)
-	local b = Match.new(level("slow"), Config, 7)
+	local a = Match.new(level(Config.speeds.slow.speed), Config, 7)
+	local b = Match.new(level(Config.speeds.slow.speed), Config, 7)
 
 	playTurn(a, { { tick = 1, order = Orders.torpedo(1, math.pi, "slow", 100) } })
 	playTurn(b, { { tick = 1, order = Orders.torpedo(1, math.pi, "slow", 100) } })
@@ -168,14 +185,14 @@ end)
 
 test("the AI steers clear of the seabed: a standing course into rock is levelled out", function()
 	local lvl = level()
-	lvl.subs.enemy = { x = 1000, y = 540, order = Orders.course("west", math.rad(30), "half") }
+	lvl.subs.enemy = { x = 1000, y = 540, order = Orders.course("west", math.rad(30), Config.speeds.half.speed) }
 
 	local ctx = Match.new(lvl, Config, 1)
 
 	local courses = ofKind(ctx.turn.queues.enemy, "course")
 	assertEqual(1, #courses)
 	assertTrue(courses[1].order.dive <= 0, "no longer diving into the seabed")
-	assertEqual("half", courses[1].order.speed, "otherwise as it was")
+	assertEqual(Config.speeds.half.speed, courses[1].order.speed, "otherwise as it was")
 end)
 
 test("in a pit too narrow to steer clear of the walls the AI stops short of the rock", function()
@@ -186,8 +203,8 @@ test("in a pit too narrow to steer clear of the walls the AI stops short of the 
 			{ x = 720, y = 700 }, { x = 721, y = 100 }, { x = 1280, y = 100 },
 		},
 		subs = {
-			player = { x = 200, y = 40, order = Orders.course("east", 0, "stop") },
-			enemy = { x = 600, y = 400, order = Orders.course("east", 0, "half") },
+			player = { x = 200, y = 40, order = Orders.course("east", 0, Config.speeds.stop.speed) },
+			enemy = { x = 600, y = 400, order = Orders.course("east", 0, Config.speeds.half.speed) },
 		},
 	}
 
@@ -201,7 +218,7 @@ test("in a pit too narrow to steer clear of the walls the AI stops short of the 
 
 	local stops = {}
 	for _, entry in ipairs(ofKind(ctx.orderLog.entries, "course")) do
-		if entry.slot == "enemy" and entry.order.speed == "stop" then
+		if entry.slot == "enemy" and entry.order.speed == Config.speeds.stop.speed then
 			stops[#stops + 1] = entry
 		end
 	end
@@ -212,11 +229,11 @@ end)
 test("a contact gone quiet is closed on near where it was last heard, not extrapolated far along its old course", function()
 	-- The player runs east, stops (silent) at x = 240 px on tick 120; the
 	-- enemy waits at x = 400 px. Its old course, run on to now, would pass the enemy.
-	local lvl = level("slow")
+	local lvl = level(Config.speeds.slow.speed)
 	lvl.subs.enemy.x = 400
 	local ctx = Match.new(lvl, Config, 1)
 
-	playTurn(ctx, { { tick = 120, order = Orders.course("east", 0, "stop") } })
+	playTurn(ctx, { { tick = 120, order = Orders.course("east", 0, Config.speeds.stop.speed) } })
 
 	local courses = ofKind(ctx.turn.queues.enemy, "course")
 	assertEqual(1, courses[1].tick)
@@ -231,14 +248,14 @@ test("stopped with nothing to hunt, the AI searches: it sets off quietly towards
 	local courses = ofKind(ctx.turn.queues.enemy, "course")
 	assertEqual(1, #courses)
 	assertEqual("west", courses[1].order.heading, "from x = 1000 px, towards the middle of the map")
-	assertEqual(Config.ai.quietSpeed, courses[1].order.speed)
+	assertEqual(Config.speeds[Config.ai.quietSpeed].speed, courses[1].order.speed)
 end)
 
 test("a ridge in the way is climbed over rather than turned away from", function()
 	-- The AI searches west from just east of a ridge rising to y = 300.
 	local lvl = level()
 	lvl.seabed = { { x = 0, y = 600 }, { x = 560, y = 600 }, { x = 640, y = 300 }, { x = 720, y = 600 }, { x = 1280, y = 600 } }
-	lvl.subs.enemy = { x = 780, y = 520, order = Orders.course("west", 0, "stop") }
+	lvl.subs.enemy = { x = 780, y = 520, order = Orders.course("west", 0, Config.speeds.stop.speed) }
 	local ctx = Match.new(lvl, Config, 1)
 
 	playTurn(ctx)

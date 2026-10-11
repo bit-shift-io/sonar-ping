@@ -13,8 +13,8 @@ local function level(overrides)
 	local t = {
 		seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 		subs = {
-			player = { x = 200, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = "full" } },
-			enemy = { x = 1000, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = "slow" } },
+			player = { x = 200, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = Config.speeds.full.speed } },
+			enemy = { x = 1000, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = Config.speeds.slow.speed } },
 		},
 	}
 	for k, v in pairs(overrides or {}) do
@@ -87,7 +87,7 @@ end)
 
 test("a sub ordered to dive stops on the seabed instead of passing through it", function()
 	local lvl = level()
-	lvl.subs.player = { x = 200, y = 560, order = { kind = "course", heading = "east", dive = math.rad(30), speed = "full" } }
+	lvl.subs.player = { x = 200, y = 560, order = { kind = "course", heading = "east", dive = math.rad(30), speed = Config.speeds.full.speed } }
 	local ctx = executing(lvl)
 	local body = bodyOf(ctx, ctx.pools.subs[1])
 
@@ -151,7 +151,7 @@ test("every sub is an observer with its own perception", function()
 end)
 
 test("stopped subs are silent: nobody perceives anything", function()
-	local ctx = executingAt("stop")
+	local ctx = executingAt(Config.speeds.stop.speed)
 
 	Play.steps(ctx, 400)
 
@@ -160,7 +160,7 @@ test("stopped subs are silent: nobody perceives anything", function()
 end)
 
 test("only a sub's aft (propeller and engine) cells emit noise", function()
-	local ctx = executingAt("slow")
+	local ctx = executingAt(Config.speeds.slow.speed)
 	local sub = ctx.pools.subs[1]
 	local body = bodyOf(ctx, sub)
 
@@ -175,7 +175,7 @@ end)
 
 test("the player hears the enemy only after sound has crossed the gap", function()
 	local lvl = level()
-	lvl.subs.player.order.speed = "stop"
+	lvl.subs.player.order.speed = Config.speeds.stop.speed
 	local ctx = executing(lvl)
 	local player = bodyOf(ctx, ctx.pools.subs[1])
 	local enemy = bodyOf(ctx, ctx.pools.subs[2])
@@ -201,8 +201,8 @@ end)
 -- Both subs stopped (silent), the player pinging at tick 1 of turn 1.
 local function pingingMatch()
 	local lvl = level()
-	lvl.subs.player.order.speed = "stop"
-	lvl.subs.enemy.order.speed = "stop"
+	lvl.subs.player.order.speed = Config.speeds.stop.speed
+	lvl.subs.enemy.order.speed = Config.speeds.stop.speed
 	local ctx = Match.new(lvl, Config, 1, { ai = false })
 	Turn.submit(ctx, "player", { { tick = 1, order = Orders.ping() } })
 	Turn.submit(ctx, "enemy", {})

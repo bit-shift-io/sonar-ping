@@ -23,7 +23,7 @@ end
 function Blast.detonate(ctx, x, y)
 	ctx.blasts[#ctx.blasts + 1] = { tick = ctx.tick, x = x, y = y }
 	local cx, cy = Grid.worldToCell(ctx.grid, x, y)
-	Emissions.record(ctx.emissions, ctx.tick, cx, cy, "blast", ctx.config.torpedo.blastNoise)
+	Emissions.record(ctx.emissions, ctx.tick, cx, cy, "blast", ctx.config.torpedo.blastNoise, true)
 	for _, sub in ipairs(ctx.pools.subs) do
 		if not sub.dead and inside(ctx, sub, x, y, ctx.config.torpedo.blastRadius) then
 			SubSystem.kill(ctx, sub)

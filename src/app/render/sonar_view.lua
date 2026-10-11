@@ -1,4 +1,5 @@
--- The player's screen: one observer's perception drawn as green phosphor.
+-- The player's screen: one observer's perception drawn as green phosphor
+-- (blue for contacts a torpedo produced).
 -- Passive contacts glow at their perceived (smeared) positions; ping echoes
 -- are sharp cells with no halo; a heard ping origin is a small cross; a heard
 -- detonation (a "blast", smeared like any passive sound) is a ring. All
@@ -11,6 +12,7 @@ local Perception = require("src.perception.perception")
 local SonarView = {}
 
 local PHOSPHOR = { 0.3, 1.0, 0.4 }
+local TORPEDO = { 0.3, 0.6, 1.0 } -- contacts a torpedo produced draw blue
 local GLOW_SCALE = 3 -- halo size in cells
 local GLOW_ALPHA = 0.08
 local OWN_SHIP = { 0.35, 1.0, 0.45, 0.35 }
@@ -29,11 +31,12 @@ function SonarView.draw(perception, cellSize)
 	if not perception or not perception.tick then
 		return
 	end
-	local r, g, b = PHOSPHOR[1], PHOSPHOR[2], PHOSPHOR[3]
 	local glow = cellSize * GLOW_SCALE
 	-- Alpha blending: overlapping contacts converge on phosphor green rather
 	-- than saturating to white.
 	for _, contact in ipairs(perception.contacts) do
+		local colour = contact.torpedo and TORPEDO or PHOSPHOR
+		local r, g, b = colour[1], colour[2], colour[3]
 		local fade = 1 - Perception.age(perception, contact) / Perception.fadeTicksOf(perception, contact)
 		-- Cell units have cell centres at integers; (x - 0.5) * size is px.
 		local px, py = (contact.x - 0.5) * cellSize, (contact.y - 0.5) * cellSize

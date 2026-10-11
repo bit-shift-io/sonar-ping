@@ -1,7 +1,6 @@
--- A torpedo planned with the mouse: pick a tube, drag the launch angle, pick
--- a speed, drag the fuse marker along the preview line, execute. Against the
--- idle (orderless, stopped) enemy it sinks it and the match ends. Mouse
--- coordinates are world px.
+-- A torpedo planned with the mouse: pick a tube, drag one aim point, execute.
+-- Against the idle (orderless, stopped) enemy it sinks it and the match ends.
+-- Mouse coordinates are world px.
 local GameHarness = require("tests.support.game_harness")
 local FrameStepper = require("tests.support.frame_stepper")
 local Config = require("src.game.config")
@@ -14,8 +13,8 @@ local MatchEnd = require("src.app.render.match_end")
 local LEVEL = {
 	seabed = { { x = 0, y = 600 }, { x = 1280, y = 600 } },
 	subs = {
-		player = { x = 200, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = "stop" } },
-		enemy = { x = 900, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = "stop" } },
+		player = { x = 200, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = Config.speeds.stop.speed } },
+		enemy = { x = 500, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = Config.speeds.stop.speed } },
 	},
 }
 
@@ -49,14 +48,9 @@ test("a torpedo planned with the mouse at the idle enemy sinks it and ends the m
 	local state = game.state
 
 	click(game, centre(state:tubeButton(1)))
-	local hx, hy = state:torpedoHandlePosition()
-	assertTrue(hx < 200, "the launch angle starts along the hull, pointing west")
-	drag(game, hx, hy, 600, 300)
-	click(game, centre(state:torpedoSpeedButton("fast")))
-	local fx, fy = state:fuseMarkerPosition()
-	drag(game, fx, fy, 870, 302)
+	drag(game, 700, 500, 500, 300) -- one drag onto the enemy
 	local preview = state:torpedoPreview()
-	assertNear(870, preview.points[preview.endTick].x, 2, "the fuse marker follows the drag along the line")
+	assertNear(500, preview.detonation.x, 4, "the preview detonates at the aim point")
 	click(game, centre(state:executeButton()))
 
 	local log = game.ctx.orderLog.entries
@@ -64,7 +58,7 @@ test("a torpedo planned with the mouse at the idle enemy sinks it and ends the m
 	assertEqual(1, log[2].order.tube)
 	assertEqual(1, log[2].tick)
 	assertNear(0, log[2].order.angle, 1e-9)
-	assertEqual("fast", log[2].order.speed)
+	assertEqual("fast", log[2].order.speed, "300 px is within fast range")
 	assertEqual(preview.endTick, log[2].order.fuse)
 
 	FrameStepper.step(game, Config.turn.ticks)
@@ -79,7 +73,7 @@ end)
 test("an enemy launch at the player sinks it and the match ends in a loss", function()
 	local game = GameHarness.startMatch(LEVEL)
 	-- The enemy's orders arrive through the same Turn.submit an AI will use.
-	Turn.submit(game.ctx, "enemy", { { tick = 1, order = Orders.torpedo(2, math.pi, "fast", 600) } })
+	Turn.submit(game.ctx, "enemy", { { tick = 1, order = Orders.torpedo(2, math.pi, "fast", 160) } })
 	click(game, centre(game.state:executeButton()))
 
 	FrameStepper.step(game, Config.turn.ticks)
@@ -108,8 +102,7 @@ test("a torpedo marker selected on the timeline can be re-aimed; clicking its tu
 	end
 	click(game, state:tickX(120), state:timelineRect().y + 22 + 2 * 14)
 	assertEqual(marker, state.torpedo)
-	local hx, hy = state:torpedoHandlePosition()
-	drag(game, hx, hy, hx, hy - 200)
+	drag(game, 150, 500, 150, 100)
 	assertTrue(marker.order.angle < -math.pi / 4, "aimed up")
 
 	click(game, centre(state:tubeButton(2)))
@@ -121,4 +114,41 @@ test("a torpedo marker selected on the timeline can be re-aimed; clicking its tu
 		end
 	end
 	assertEqual(1, torpedoes, "only the tube-1 launch is left")
+end)
+
+test("an aim drag picks fast within fast range, else slow, and clamps beyond slow range", function()
+	-- Long open run east: the slow max run (1080 px) fits before the world edge.
+	local game = GameHarness.startMatch({
+		seabed = LEVEL.seabed,
+		subs = {
+			player = { x = 40, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = Config.speeds.stop.speed } },
+			enemy = { x = 1250, y = 100, order = { kind = "course", heading = "west", dive = 0, speed = Config.speeds.stop.speed } },
+		},
+	})
+	local state = game.state
+	local speeds = Config.torpedo.speeds
+	click(game, centre(state:tubeButton(1)))
+
+	drag(game, 600, 500, 1270, 300)
+	assertEqual("slow", state.torpedo.order.speed)
+	assertEqual(speeds.slow.maxRun, state.torpedo.order.fuse, "beyond slow range the fuse is the max run")
+	local ax = state:aimPoint()
+	assertTrue(ax < 1270 and ax > 1000, "the aim point clamps to slow range along the angle")
+
+	drag(game, 600, 500, 400, 300)
+	assertEqual("fast", state.torpedo.order.speed)
+	assertTrue(state.torpedo.order.fuse <= speeds.fast.maxRun)
+
+	drag(game, 600, 500, 900, 300)
+	assertEqual("slow", state.torpedo.order.speed, "between fast and slow range")
+end)
+
+test("an aim point inside the arming distance is planned as a dud, not refused", function()
+	local game = GameHarness.startMatch(LEVEL)
+	local state = game.state
+	click(game, centre(state:tubeButton(1)))
+	drag(game, 700, 500, 230, 300)
+	local _, _, dud = state:aimPoint()
+	assertTrue(dud)
+	assertEqual(nil, state:torpedoPreview().detonation)
 end)

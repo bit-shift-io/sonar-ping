@@ -7,12 +7,12 @@
 -- (config.match.enemies > 1), in order: open water east of the ridge.
 return {
 	subs = {
-		player = { x = 120, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = "slow" } },
-		enemy = { x = 1160, y = 400, order = { kind = "course", heading = "west", dive = 0, speed = "slow" } },
+		player = { x = 120, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = 20 } },
+		enemy = { x = 1160, y = 400, order = { kind = "course", heading = "west", dive = 0, speed = 20 } },
 	},
 	extraEnemies = {
-		{ x = 1040, y = 220, order = { kind = "course", heading = "west", dive = 0, speed = "slow" } },
-		{ x = 860, y = 320, order = { kind = "course", heading = "west", dive = 0, speed = "slow" } },
+		{ x = 1040, y = 220, order = { kind = "course", heading = "west", dive = 0, speed = 20 } },
+		{ x = 860, y = 320, order = { kind = "course", heading = "west", dive = 0, speed = 20 } },
 	},
 	seabed = {
 		{ x = 0, y = 540 },

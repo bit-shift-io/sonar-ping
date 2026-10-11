@@ -152,6 +152,11 @@ local function track(brain, view)
 	return estimate
 end
 
+-- The px/s of a named speed (a config.speeds anchor, e.g. config.ai.closeSpeed).
+local function speedOf(view, name)
+	return view.config.speeds[name].speed
+end
+
 local function clampDive(view, dive)
 	local maxDive = view.config.sub.maxDive
 	return math.max(-maxDive, math.min(maxDive, dive))
@@ -161,7 +166,7 @@ end
 local function evade(brain, view, launch)
 	local heading = launch.x > view.own.x and "west" or "east"
 	local dive = view.config.sub.maxDive * (brain.rng:next() < 0.5 and -1 or 1)
-	return Orders.course(heading, dive, view.config.ai.evadeSpeed)
+	return Orders.course(heading, dive, speedOf(view, view.config.ai.evadeSpeed))
 end
 
 -- Where the target will be on `tick`: along its fitted course, but run on
@@ -175,14 +180,14 @@ local function close(view, estimate)
 	local tx, ty = predict(view, estimate, view.tick + view.config.ai.leadTicks)
 	local dx, dy = tx - view.own.x, ty - view.own.y
 	local heading = dx < 0 and "west" or "east"
-	return Orders.course(heading, clampDive(view, atan2(dy, math.abs(dx))), view.config.ai.closeSpeed)
+	return Orders.course(heading, clampDive(view, atan2(dy, math.abs(dx))), speedOf(view, view.config.ai.closeSpeed))
 end
 
 -- Nothing to hunt and lying stopped: set off quietly, level, towards the
 -- middle of the map (where it can hear most of it).
 local function search(view)
 	local heading = view.own.x > view.grid.width / 2 and "west" or "east"
-	return Orders.course(heading, 0, view.config.ai.quietSpeed)
+	return Orders.course(heading, 0, speedOf(view, view.config.ai.quietSpeed))
 end
 
 local function loadedTube(view)
@@ -207,31 +212,36 @@ local function shot(view, estimate, path)
 	local sx, sy = toCells(view, wx, wy)
 	local tx, ty = predict(view, estimate, view.tick + 1)
 	local size = config.grid.cellSize
-	local speed = config.torpedo.speeds[cfg.torpedoSpeed].speed * config.dt / size
-	local angle, ticks = FireSolution.intercept(sx, sy, tx, ty, estimate.vx, estimate.vy, speed)
-	if not angle then
-		return nil
+	for _, name in ipairs({ "fast", "slow" }) do
+		local setting = config.torpedo.speeds[name]
+		local speed = setting.speed * config.dt / size
+		local angle, ticks = FireSolution.intercept(sx, sy, tx, ty, estimate.vx, estimate.vy, speed)
+		if angle then
+			local fuse = math.floor(ticks + 0.5)
+			if fuse >= 1 and fuse <= setting.maxRun then
+				if fuse * speed * size < config.torpedo.armDistance + cfg.armMargin then
+					return nil
+				end
+				local order = Orders.torpedo(tube, angle, name, fuse)
+				local preview = Predict.torpedo(view, wx, wy, order)
+				if preview.ends ~= "fuse" or preview.endTick ~= fuse then
+					return nil
+				end
+				return order, { x = wx, y = wy, points = preview.points, endTick = fuse }
+			end
+		end
 	end
-	local fuse = math.floor(ticks + 0.5)
-	local run = fuse * speed
-	if fuse < 1 or fuse > config.torpedo.maxFuse or run > cfg.fireRange then
-		return nil
-	end
-	if run * size < config.torpedo.armDistance + cfg.armMargin then
-		return nil
-	end
-	local order = Orders.torpedo(tube, angle, cfg.torpedoSpeed, fuse)
-	local preview = Predict.torpedo(view, wx, wy, order)
-	if preview.ends ~= "fuse" or preview.endTick ~= fuse then
-		return nil
-	end
-	return order, { x = wx, y = wy, points = preview.points, endTick = fuse }
+	return nil
 end
 
 -- Forgets its own torpedo runs once nothing of them can still be heard.
 local function forgetLaunches(brain, view)
 	local config, kept = view.config, {}
-	local horizon = config.torpedo.maxFuse + config.perception.echoFadeTicks
+	local longest = 0
+	for _, setting in pairs(config.torpedo.speeds) do
+		longest = math.max(longest, setting.maxRun)
+	end
+	local horizon = longest + config.perception.echoFadeTicks
 	for _, run in ipairs(brain.launches) do
 		if view.tick - run.tick <= horizon then
 			kept[#kept + 1] = run
@@ -245,7 +255,7 @@ end
 -- rock -- a tick on which it should move but is held where it was -- or
 -- math.huge if it stays clear for `horizon` ticks (or is stopped).
 local function groundTick(view, course, later, horizon)
-	if view.config.speeds[(course or view.own.helm).speed].speed == 0 then
+	if (course or view.own.helm).speed == 0 then
 		return math.huge
 	end
 	local entries = { course and { tick = 1, order = course } or nil }
@@ -273,7 +283,7 @@ local function steerClear(view, course, later)
 	end
 	local base = course or view.own.helm
 	local other = base.heading == "east" and "west" or "east"
-	local speed = view.config.speeds[base.speed].speed > 0 and base.speed or "slow"
+	local speed = base.speed > 0 and base.speed or speedOf(view, view.config.ai.quietSpeed)
 	local candidates = {
 		Orders.course(base.heading, 0, speed),
 		Orders.course(base.heading, -view.config.sub.maxDive, speed),
@@ -305,7 +315,7 @@ local function stopShort(view, course, later)
 			current = entry.order
 		end
 	end
-	local stop = Orders.course(current.heading, current.dive, "stop")
+	local stop = Orders.course(current.heading, current.dive, 0)
 	if stopTick <= 1 then
 		return stop, {}
 	end
@@ -323,11 +333,11 @@ function Ai.plan(brain, view)
 	local course, later = nil, {}
 	if brain.launch then
 		course = evade(brain, view, brain.launch)
-		later[1] = { tick = cfg.evadeTicks, order = Orders.course(course.heading, 0, cfg.quietSpeed) }
+		later[1] = { tick = cfg.evadeTicks, order = Orders.course(course.heading, 0, speedOf(view, cfg.quietSpeed)) }
 		brain.launch = nil
 	elseif estimate then
 		course = close(view, estimate)
-	elseif now > 0 and view.config.speeds[view.own.helm.speed].speed == 0 then
+	elseif now > 0 and view.own.helm.speed == 0 then
 		course = search(view)
 	end
 	course = steerClear(view, course, later)

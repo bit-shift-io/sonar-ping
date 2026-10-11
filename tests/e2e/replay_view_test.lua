@@ -18,6 +18,14 @@ local function click(game, x, y)
 	game:mousereleased(x, y, 1)
 end
 
+-- Drags the course handle to (x, y), the course target.
+local function steer(game, x, y)
+	local hx, hy = game.state:handlePosition()
+	game:mousepressed(hx, hy, 1)
+	game:mousemoved(x, y)
+	game:mousereleased(x, y, 1)
+end
+
 local function render(game)
 	local canvas = love.graphics.newCanvas(1280, 720)
 	love.graphics.setCanvas(canvas)
@@ -44,7 +52,8 @@ end
 
 test("the replay shows sound heard mid-turn that has since faded, and nothing of true state", function()
 	local game = GameHarness.startMatch(Trench, { real = true })
-	click(game, centre(game.state:speedButton("full")))
+	local sx, sy = game.state:subPosition()
+	steer(game, sx + 800, sy)
 	click(game, game.state:tickX(1), game.state:timelineRect().y + 24)
 	click(game, centre(game.state:pingButton()))
 	game.state:commit()

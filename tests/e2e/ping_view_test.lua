@@ -11,7 +11,7 @@ local Config = require("src.game.config")
 local Trench = require("src.game.levels.trench")
 
 local function stopped(spec)
-	return { x = spec.x, y = spec.y, order = { kind = "course", heading = spec.order.heading, dive = 0, speed = "stop" } }
+	return { x = spec.x, y = spec.y, order = { kind = "course", heading = spec.order.heading, dive = 0, speed = Config.speeds.stop.speed } }
 end
 
 local LEVEL = {

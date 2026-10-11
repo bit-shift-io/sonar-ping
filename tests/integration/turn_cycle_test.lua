@@ -1,5 +1,5 @@
--- Two full turns driven the way a player does it: drag the heading handle,
--- click a speed, click Execute, watch the turn run. Mouse coordinates are
+-- Two full turns driven the way a player does it: drag the course handle to
+-- where the sub should end the turn, click Execute, watch the turn run. Mouse coordinates are
 -- world px (the harness has no window, so no screen fit to undo).
 local GameHarness = require("tests.support.game_harness")
 local FrameStepper = require("tests.support.frame_stepper")
@@ -27,11 +27,14 @@ local function playerBody(game)
 	return Bodies.get(game.ctx.bodies, game.ctx.pools.subs[1].bodyId)
 end
 
+local function distance(p, x, y)
+	return math.sqrt((p.x - x) ^ 2 + (p.y - y) ^ 2)
+end
+
 -- Plans one turn with the mouse and returns the ghost path shown at commit.
-local function planTurn(game, aimX, aimY, speed)
+local function planTurn(game, targetX, targetY)
 	local hx, hy = game.state:handlePosition()
-	drag(game, hx, hy, aimX, aimY)
-	click(game, centre(game.state:speedButton(speed)))
+	drag(game, hx, hy, targetX, targetY)
 	local ghost = game.state.path
 	click(game, centre(game.state:executeButton()))
 	return ghost
@@ -45,13 +48,13 @@ test("two turns planned with the mouse: the sub ends each turn where its ghost p
 	FrameStepper.step(game, 120)
 	assertEqual(0, game.ctx.tick, "no ticks advance while planning")
 
-	-- Turn 1: east, diving, full speed.
+	-- Turn 1: a target east, down and beyond reach: full speed, diving.
 	local body = playerBody(game)
-	local stopButton = game.state:speedButton("stop")
-	local ghost1 = planTurn(game, body.x + 100, body.y + 40, "full")
+	local pingButton = game.state:pingButton()
+	local ghost1 = planTurn(game, body.x + 600, body.y + 100)
 	assertEqual("execute", game.ctx.turn.phase)
 	FrameStepper.step(game, ticks / 2)
-	click(game, centre(stopButton)) -- execute accepts no input
+	click(game, centre(pingButton)) -- execute accepts no input
 	FrameStepper.step(game, ticks / 2)
 
 	assertEqual("plan", game.state.phase)
@@ -60,8 +63,10 @@ test("two turns planned with the mouse: the sub ends each turn where its ghost p
 	assertEqual(ghost1[ticks].x, body.x)
 	assertEqual(ghost1[ticks].y, body.y)
 
-	-- Turn 2: back west and climbing, slow.
-	local ghost2 = planTurn(game, body.x - 100, body.y - 30, "slow")
+	-- Turn 2: a reachable target back west and up.
+	local targetX, targetY = body.x - 100, body.y - 110
+	local ghost2 = planTurn(game, targetX, targetY)
+	assertTrue(distance(ghost2[ticks], targetX, targetY) <= Config.grid.cellSize, "the ghost path ends on the target")
 	FrameStepper.step(game, ticks)
 
 	assertEqual(3, game.ctx.turn.number)
@@ -79,23 +84,58 @@ test("two turns planned with the mouse: the sub ends each turn where its ghost p
 	assertEqual(1, log[1].turn)
 	assertEqual("player", log[1].slot)
 	assertEqual("east", log[1].order.heading)
-	assertTrue(log[1].order.dive > 0, "dragging below the sub orders a dive")
-	assertEqual("full", log[1].order.speed)
+	assertTrue(log[1].order.dive > 0, "a target below the sub orders a dive")
+	assertEqual(Config.speeds.full.speed, log[1].order.speed, "a target out of reach orders full speed")
 	assertEqual(2, log[2].turn)
 	assertEqual("west", log[2].order.heading)
-	assertTrue(log[2].order.dive < 0, "dragging above the sub orders a climb")
-	assertEqual("slow", log[2].order.speed)
+	local speed = log[2].order.speed
+	assertTrue(speed > 0 and speed < Config.speeds.full.speed, "a target within reach orders less than full speed")
 end)
 
-test("dragging below the steepest dive clamps the planned dive to the configured limit", function()
+test("dragging the course handle onto the sub plans a stop", function()
+	local game = GameHarness.startMatch(Trench)
+	local body = playerBody(game)
+	local hx, hy = game.state:handlePosition()
+
+	drag(game, hx, hy, body.x + 2, body.y - 1)
+
+	assertEqual(0, game.state:course().speed)
+	local last = game.state.path[Config.turn.ticks]
+	assertEqual(body.x, last.x, "the ghost path stays on the sub")
+	assertEqual(body.y, last.y)
+end)
+
+test("the course handle stays on the course target after the drag", function()
+	local game = GameHarness.startMatch(Trench)
+	local body = playerBody(game)
+	local hx, hy = game.state:handlePosition()
+
+	drag(game, hx, hy, body.x + 700, body.y)
+
+	local nx, ny = game.state:handlePosition()
+	assertEqual(body.x + 700, nx)
+	assertEqual(body.y, ny)
+	local tx, ty, ex = game.state:courseTarget()
+	assertEqual(body.x + 700, tx)
+	assertTrue(ex < tx, "the end of turn falls short of an unreachable target")
+end)
+
+test("a target below the steepest dive keeps the planned dive within the configured limit", function()
 	local game = GameHarness.startMatch(Trench)
 	local body = playerBody(game)
 	local hx, hy = game.state:handlePosition()
 
 	drag(game, hx, hy, body.x + 10, body.y + 200)
 
-	assertEqual("east", game.state:course().heading)
-	assertNear(Config.sub.maxDive, game.state:course().dive)
+	assertTrue(math.abs(game.state:course().dive) <= Config.sub.maxDive)
+	assertTrue(game.state.path[Config.turn.ticks].y > body.y, "the turn ends deeper")
+end)
+
+test("there are no sub speed buttons", function()
+	local game = GameHarness.startMatch(Trench)
+
+	assertEqual(nil, game.state.speedButton)
+	assertEqual(nil, game.state.SPEEDS)
 end)
 
 test("a press away from the handle and the buttons changes nothing", function()

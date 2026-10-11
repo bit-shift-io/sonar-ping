@@ -1,5 +1,6 @@
 -- The plan phase draws the ghost path with per-second marks; the execute
--- phase does not.
+-- phase does not. A course target out of reach is marked apart from where the
+-- ghost path ends.
 local GameHarness = require("tests.support.game_harness")
 local FrameStepper = require("tests.support.frame_stepper")
 local Capture = require("tests.support.capture")
@@ -27,4 +28,52 @@ test("the ghost path's two-second mark is drawn while planning and gone while ex
 
 	assertTrue(pg > 0.5 and pg > pr and pg > pb, "the mark is drawn in phosphor green")
 	assertFalse(pr == er and pg == eg and pb == eb, "the mark is not drawn during execute")
+end)
+
+local function render(game)
+	local canvas = love.graphics.newCanvas(1280, 720)
+	love.graphics.setCanvas(canvas)
+	love.graphics.clear(0, 0, 0, 1)
+	game:draw()
+	love.graphics.setCanvas()
+	return canvas:newImageData()
+end
+
+-- Brightest red + green within `half` px of (x, y).
+local function brightAround(data, x, y, half)
+	local best = 0
+	for py = math.floor(y - half), math.floor(y + half) do
+		for px = math.floor(x - half), math.floor(x + half) do
+			local r, g = data:getPixel(px, py)
+			best = math.max(best, r + g)
+		end
+	end
+	return best
+end
+
+test("a course target out of reach is marked, and so is the end the ghost path reaches", function()
+	local game = GameHarness.startMatch(Trench, { real = true })
+	local state = game.state
+	local sx, sy = state:subPosition()
+	local hx, hy = state:handlePosition()
+	local tx, ty = sx + 650, sy + 60
+
+	game:mousepressed(hx, hy, 1)
+	game:mousemoved(tx, ty)
+	game:mousereleased(tx, ty, 1)
+	Capture.capture("course_target")
+
+	local _, _, ex, ey = state:courseTarget()
+	assertTrue(tx - ex > 100, "the end falls well short of the target")
+	local data = render(game)
+	-- The target cross, inside the handle ring around it.
+	assertTrue(brightAround(data, tx + 3, ty + 3, 1) > 0.5, "the target is marked")
+	-- The end ring, beside the ghost path's last point.
+	assertTrue(brightAround(data, ex, ey - 5, 1) > 0.5, "the reached end is marked")
+
+	game:mousepressed(tx, ty, 1)
+	game:mousemoved(ex, ey)
+	game:mousereleased(ex, ey, 1)
+	local again = render(game)
+	assertTrue(brightAround(again, tx + 3, ty + 3, 1) < 0.3, "the old target is no longer marked")
 end)

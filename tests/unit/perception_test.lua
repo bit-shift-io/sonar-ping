@@ -84,6 +84,49 @@ test("a contact carries the emission's kind and noise level", function()
 	assertEqual(3, contact.level)
 end)
 
+test("a contact arrives flagged when its emission came from a torpedo, for noise and echoes alike", function()
+	local grid = openGrid()
+	local history = Emissions.new(Emissions.capacityFor(grid, 1), 1)
+	local o = { perception = newPerception(), x = 15, y = 10 }
+
+	run(grid, history, { o }, 10, function(h, tick)
+		if tick == 0 then
+			Emissions.record(h, 0, 10, 10, "noise", 3, true)
+			Emissions.record(h, 0, 10, 11, "noise", 3)
+			Emissions.record(h, 0, 10, 12, "echo", 0, true)
+			Emissions.record(h, 0, 10, 13, "echo", 0)
+		end
+	end)
+
+	local flagged = {}
+	for _, c in ipairs(o.perception.contacts) do
+		flagged[c.kind .. c.y] = c.torpedo
+	end
+	assertEqual(true, flagged.noise10)
+	assertTrue(not flagged.noise11, "plain noise is unflagged")
+	assertEqual(true, flagged.echo12)
+	assertTrue(not flagged.echo13, "a plain echo is unflagged")
+end)
+
+test("a contact holds only where, when, what kind, how loud and whether a torpedo made it", function()
+	local grid = openGrid()
+	local history = Emissions.new(Emissions.capacityFor(grid, 1), 1)
+	local o = { perception = newPerception(), x = 15, y = 10 }
+
+	run(grid, history, { o }, 10, function(h, tick)
+		if tick == 0 then
+			Emissions.record(h, 0, 10, 10, "noise", 3, true)
+		end
+	end)
+
+	local keys = {}
+	for k in pairs(o.perception.contacts[1]) do
+		keys[#keys + 1] = k
+	end
+	table.sort(keys)
+	assertEqual("arrivalTick,kind,level,torpedo,x,y", table.concat(keys, ","))
+end)
+
 test("a contact's age counts ticks since it arrived", function()
 	local grid = openGrid()
 	local history = Emissions.new(Emissions.capacityFor(grid, 1), 1)

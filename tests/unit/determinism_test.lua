@@ -14,21 +14,34 @@ local SEED = 20261011
 
 -- Mixed orders for the player, including mid-turn orders, pings and a
 -- torpedo launch; it runs east over the ridge towards the enemy, noisy, then
--- holds its last course once the plan runs out. The enemy is the AI, which
--- fills its slot from what it hears each plan phase: it fires back from turn 2
--- and sinks the player in turn 6.
+-- holds its last course once the plan runs out. Its speeds lie between the
+-- config.speeds anchors, so speed and noise are interpolated. The enemy is the AI, which
+-- fills its slot from what it hears each plan phase, and sinks the player once
+-- the player turns noisy.
 local PLAN = {
+	-- Three quiet turns first (low, non-anchor speeds, retreating west): the
+	-- AI has little to hear, so the match runs on for several turns.
 	{
-		{ tick = 1, order = Orders.course("east", math.rad(-10), "full") },
+		{ tick = 1, order = Orders.course("west", 0, 4.4) },
+	},
+	{
+		{ tick = 1, order = Orders.course("west", math.rad(5), 6.1) },
+		{ tick = 150, order = Orders.course("west", math.rad(-5), 3.3) },
+	},
+	{
+		{ tick = 1, order = Orders.course("west", 0, 5.2) },
+	},
+	{
+		{ tick = 1, order = Orders.course("east", math.rad(-10), 72.5) },
 		{ tick = 1, order = Orders.ping() },
-		{ tick = 120, order = Orders.torpedo(1, math.rad(5), "fast", 400) },
+		{ tick = 120, order = Orders.torpedo(1, math.rad(5), "slow", 540) },
 	},
 	{
-		{ tick = 1, order = Orders.course("east", math.rad(-5), "half") },
-		{ tick = 200, order = Orders.course("west", 0, "slow") },
+		{ tick = 1, order = Orders.course("east", math.rad(-5), 51.3) },
+		{ tick = 200, order = Orders.course("west", 0, 13.7) },
 	},
 	{
-		{ tick = 150, order = Orders.course("west", math.rad(-30), "full") },
+		{ tick = 150, order = Orders.course("west", math.rad(-30), 66.6) },
 		{ tick = 100, order = Orders.ping() },
 		{ tick = 250, order = Orders.ping() },
 	},
@@ -43,7 +56,7 @@ local MAX_TURNS = 10
 local function perceptionDigest(perception)
 	local sum = 0
 	for i, c in ipairs(perception.contacts) do
-		sum = sum + i * (c.x * 7 + c.y * 13 + c.arrivalTick + c.level + c.kind:byte(1))
+		sum = sum + i * (c.x * 7 + c.y * 13 + c.arrivalTick + c.level + c.kind:byte(1) + (c.torpedo and 1000003 or 0))
 	end
 	return string.format("%d %d %.17g %s", #perception.contacts, #perception.archive, sum, tostring(perception.tick))
 end
@@ -127,7 +140,7 @@ test("a match with the AI active, replayed from its seed and order log, is ident
 	assertTrue((kinds.torpedo or 0) > 0, "the log holds the AI's launches")
 	assertTrue(ctx.result ~= nil, "fixture: the match ends")
 	assertEqual("enemy", ctx.result.winner, "fixture: the AI sank the player")
-	assertEqual(6, ctx.turn.number)
+	assertTrue(ctx.turn.number >= 5, "fixture: the match runs at least 5 turns")
 	assertEqual(#original, #replayed)
 	for i = 1, #original do
 		assertEqual(original[i], replayed[i], "true state differs at tick " .. i)

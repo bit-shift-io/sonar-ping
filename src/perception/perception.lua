@@ -21,7 +21,7 @@ function Perception.new(opts)
 		fadeTicks = opts.fadeTicks,
 		echoFadeTicks = opts.echoFadeTicks,
 		archiveTicks = opts.archiveTicks,
-		-- Arrival order, oldest first: { x, y, arrivalTick, kind, level }.
+		-- Arrival order, oldest first: { x, y, arrivalTick, kind, level, torpedo }.
 		-- Perceived position only; the true cell is never stored.
 		contacts = {},
 		-- Every contact that arrived within archiveTicks, in arrival order
@@ -106,7 +106,7 @@ end
 -- an active return.
 local function contactFor(perception, seed, e, x, y, now)
 	if isActive(e.kind) then
-		return { x = e.cx, y = e.cy, arrivalTick = now, kind = e.kind, level = e.level }
+		return { x = e.cx, y = e.cy, arrivalTick = now, kind = e.kind, level = e.level, torpedo = e.torpedo }
 	end
 	local dx, dy = e.cx - x, e.cy - y
 	local distance = math.sqrt(dx * dx + dy * dy)
@@ -115,7 +115,7 @@ local function contactFor(perception, seed, e, x, y, now)
 		range = math.max(0, distance + Smear.offset(seed, e.tick, e.cx, e.cy, distance, perception.smear))
 		dx, dy = dx / distance, dy / distance
 	end
-	return { x = x + dx * range, y = y + dy * range, arrivalTick = now, kind = e.kind, level = e.level }
+	return { x = x + dx * range, y = y + dy * range, arrivalTick = now, kind = e.kind, level = e.level, torpedo = e.torpedo }
 end
 
 local function visible(grid, e, x, y)

@@ -17,10 +17,20 @@ local function click(game, x, y, button)
 	game:mousereleased(x, y, button or 1)
 end
 
--- A game back in the plan phase after one full turn at full speed.
+-- Drags the course handle to (x, y), the course target.
+local function steer(game, x, y)
+	local hx, hy = game.state:handlePosition()
+	game:mousepressed(hx, hy, 1)
+	game:mousemoved(x, y)
+	game:mousereleased(x, y, 1)
+end
+
+-- A game back in the plan phase after one full turn at full speed (a target
+-- due east and out of reach).
 local function afterOneTurn()
 	local game = GameHarness.startMatch(Trench)
-	click(game, centre(game.state:speedButton("full")))
+	local sx, sy = game.state:subPosition()
+	steer(game, sx + 800, sy)
 	game.state:commit()
 	FrameStepper.step(game, game.ctx.turn.length)
 	return game
@@ -91,12 +101,14 @@ test("planning input is inert while the scrubber is open, and works again once i
 	local state = game.state
 	openReplay(game)
 
-	click(game, centre(state:speedButton("stop")))
+	local speed = state:course().speed
+	steer(game, state:subPosition())
 	click(game, centre(state:pingButton()))
 	click(game, centre(state:executeButton()))
 
 	assertEqual("plan", game.ctx.turn.phase)
 	assertEqual(1, #state:orders())
+	assertEqual(speed, state:course().speed, "the course handle did not move")
 	openReplay(game)
 	assertFalse(state:replaying())
 	assertEqual(nil, state:replayPerception())

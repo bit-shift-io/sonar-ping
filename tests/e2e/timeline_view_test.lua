@@ -13,6 +13,14 @@ local function click(game, x, y)
 	game:mousereleased(x, y, 1)
 end
 
+-- Drags the course handle to (x, y), the course target.
+local function steer(game, x, y)
+	local hx, hy = game.state:handlePosition()
+	game:mousepressed(hx, hy, 1)
+	game:mousemoved(x, y)
+	game:mousereleased(x, y, 1)
+end
+
 local function render(game)
 	local canvas = love.graphics.newCanvas(1280, 720)
 	love.graphics.setCanvas(canvas)
@@ -25,12 +33,11 @@ end
 test("the timeline strip and the ghost path markers are drawn for a ping and a course change", function()
 	local game = GameHarness.startMatch(Trench, { real = true })
 	local state = game.state
-	click(game, centre(state:speedButton("half")))
+	local sx, sy = state:subPosition()
+	steer(game, sx + 225, sy)
 	click(game, state:tickX(120), state:timelineRect().y + 24)
-	local hx, hy = state:handlePosition()
-	game:mousepressed(hx, hy, 1)
-	game:mousemoved(hx + 40, hy + 50)
-	game:mousereleased(hx + 40, hy + 50, 1)
+	local ax, ay = state:anchorPosition()
+	steer(game, ax + 100, ay + 40)
 	click(game, state:tickX(200), state:timelineRect().y + 24)
 	click(game, centre(state:pingButton()))
 	Capture.capture("timeline")

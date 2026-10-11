@@ -221,7 +221,7 @@ local function stepPings(ctx)
 		-- Torpedo hulls echo like sub hulls (same shape of record).
 		for _, torpedo in ipairs(ctx.pools.torpedoes) do
 			for _, cell in ipairs(Ping.strike(ping, SubSystem.echoCells(ctx, torpedo), ctx.grid, now, c)) do
-				Emissions.record(history, now, cell.cx, cell.cy, "echo", 0)
+				Emissions.record(history, now, cell.cx, cell.cy, "echo", 0, true)
 			end
 		end
 		if not Ping.spent(ping, ctx.grid, now, c) then
@@ -244,7 +244,7 @@ local function recordEmissions(ctx)
 	end
 	for _, torpedo in ipairs(ctx.pools.torpedoes) do
 		for _, c in ipairs(TorpedoSystem.noisyCells(ctx, torpedo)) do
-			Emissions.record(ctx.emissions, ctx.tick, c.cx, c.cy, "noise", torpedo.noise)
+			Emissions.record(ctx.emissions, ctx.tick, c.cx, c.cy, "noise", torpedo.noise, true)
 		end
 	end
 end

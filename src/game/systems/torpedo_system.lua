@@ -28,7 +28,7 @@ end
 -- Records a one-off emission of `level` at world point (x, y) (the cell holding it).
 local function emitAt(ctx, x, y, kind, level)
 	local cx, cy = Grid.worldToCell(ctx.grid, x, y)
-	Emissions.record(ctx.emissions, ctx.tick, cx, cy, kind, level)
+	Emissions.record(ctx.emissions, ctx.tick, cx, cy, kind, level, true)
 end
 
 local function spawn(ctx, sub, subBody, order)

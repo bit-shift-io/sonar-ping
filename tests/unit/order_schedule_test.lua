@@ -26,7 +26,7 @@ local function stepTo(ctx, tick)
 end
 
 test("a course order at tick 240 reaches the helm on tick 240, not 239 or 241", function()
-	local ctx = startTurn({ { tick = 240, order = Orders.course("west", 0, "full") } })
+	local ctx = startTurn({ { tick = 240, order = Orders.course("west", 0, Config.speeds.full.speed) } })
 	local helm = player(ctx).helm
 	local before = helm.speed
 
@@ -34,7 +34,7 @@ test("a course order at tick 240 reaches the helm on tick 240, not 239 or 241", 
 	assertEqual(before, helm.speed, "unchanged after tick 239")
 	stepTo(ctx, 240)
 
-	assertEqual("full", helm.speed, "applied on tick 240")
+	assertEqual(Config.speeds.full.speed, helm.speed, "applied on tick 240")
 	assertEqual("west", helm.heading)
 end)
 
@@ -53,8 +53,8 @@ end)
 test("the order log records each order at the tick it was scheduled for", function()
 	local ctx = startTurn({
 		{ tick = 90, order = Orders.ping() },
-		{ tick = 1, order = Orders.course("east", 0, "half") },
-		{ tick = Config.turn.ticks, order = Orders.course("west", 0, "slow") },
+		{ tick = 1, order = Orders.course("east", 0, Config.speeds.half.speed) },
+		{ tick = Config.turn.ticks, order = Orders.course("west", 0, Config.speeds.slow.speed) },
 	})
 
 	local ticks = {}

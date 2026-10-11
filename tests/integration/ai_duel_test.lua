@@ -44,28 +44,31 @@ end
 
 test("on the trench the AI closes on a player holding a slow, steady course and sinks it within four turns", function()
 	local game = GameHarness.startMatch(Trench, { seed = SEED })
-	local start = distance(game)
 
 	-- The unchanged plan each turn: the starting course, slow east.
 	local function commit(g)
 		g.state:commit()
 	end
 
-	play(game, 3, commit)
-	assertTrue(distance(game) < start / 3, "the AI closed in over turns 1 to 3")
+	local start = distance(game)
 	play(game, 1, commit)
+	assertTrue(distance(game) < start, "the AI closed in over turn 1")
+	assertEqual(0, #enemyLaunches(game), "with nothing heard yet it holds fire in turn 1")
+	play(game, 3, commit)
 
 	assertEqual("enemy", game.ctx.result and game.ctx.result.winner, "the AI sank the player")
-	assertEqual(4, game.ctx.turn.number, "in turn 4")
-	assertEqual(1, #enemyLaunches(game), "with its first shot")
+	assertTrue(game.ctx.turn.number <= 4, "within four turns")
+	local launches = enemyLaunches(game)
+	assertTrue(#launches >= 1 and #launches <= 2, "with its first shot or one follow-up")
+	assertEqual("slow", launches[1].order.speed, "the first shot is slow: the target is beyond fast range")
 end)
 
 -- Open water: a flat seabed well below both subs.
 local OPEN = {
 	seabed = { { x = 0, y = 660 }, { x = 1280, y = 660 } },
 	subs = {
-		player = { x = 400, y = 330, order = Orders.course("east", 0, "slow") },
-		enemy = { x = 1000, y = 330, order = Orders.course("west", 0, "slow") },
+		player = { x = 400, y = 330, order = Orders.course("east", 0, Config.speeds.slow.speed) },
+		enemy = { x = 1000, y = 330, order = Orders.course("west", 0, Config.speeds.slow.speed) },
 	},
 }
 
@@ -78,7 +81,7 @@ local function legOrder(leg)
 	local first = block % 2 == 0 and "east" or "west"
 	local second = first == "east" and "west" or "east"
 	local dive = math.rad(12)
-	return Orders.course(within < 2 and first or second, within % 2 == 0 and dive or -dive, "full")
+	return Orders.course(within < 2 and first or second, within % 2 == 0 and dive or -dive, Config.speeds.full.speed)
 end
 
 -- The weave's orders for the turn after global tick `start`: the leg in

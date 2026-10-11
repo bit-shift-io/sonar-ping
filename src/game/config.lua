@@ -22,13 +22,34 @@ local Config = {
 		maxDive = math.rad(30),
 	},
 
-	-- Speed settings: px per second, and the noise level a sub at that
-	-- setting broadcasts (read by perception from slice 04).
+	-- Speed anchors: px per second, and the noise level a sub at that speed
+	-- broadcasts. A course order may ask for any speed from stop to full;
+	-- noise between two anchors is interpolated linearly.
 	speeds = {
 		stop = { speed = 0, noise = 0 },
 		slow = { speed = 20, noise = 1 },
 		half = { speed = 45, noise = 2 },
 		full = { speed = 80, noise = 4 },
+	},
+
+	-- Course solver (src/game/course_solve, planning UI only): `dives`
+	-- evenly spaced dive angles per heading from -maxDive to maxDive, each
+	-- projected at stop and full speed when a drag starts; an interval whose
+	-- midpoint ends further than `splitTolerance` px from the interpolated
+	-- end is halved, at most `splitDepth` times. `subSteps` interpolation
+	-- steps between neighbouring samples. A solved course whose real end is
+	-- more than `tolerance` px from the interpolated one (rock in the way) is
+	-- refined with `refineSteps` golden-section steps over speed. A target
+	-- within `stopRadius` px of where the sub is at the order's tick plans a
+	-- stop.
+	courseSolve = {
+		dives = 5,
+		splitTolerance = 2,
+		splitDepth = 6,
+		subSteps = 8,
+		tolerance = 1,
+		refineSteps = 6,
+		stopRadius = 16,
 	},
 
 	-- Match setup: `enemies` enemy subs (slots "enemy", "enemy2", ...), each
@@ -69,7 +90,8 @@ local Config = {
 	-- Torpedoes (docs/CONTEXT.md "Torpedo"): unguided, they run straight from
 	-- the launching sub's centre. Hull in world px (`length` along the run,
 	-- `beam` across). `speeds` are the settings a launch order may pick: px/s
-	-- and the running noise level. `maxFuse` bounds a fuse in ticks;
+	-- and the running noise level; `maxRun` is the longest fuse in ticks the
+	-- speed allows (fast runs shorter: its range is half the slow range);
 	-- `defaultFuse` is what the plan screen offers first. A torpedo arms once
 	-- it is `armDistance` px from its launch point; before that it ignores
 	-- hulls and a fuse or rock contact makes it a dud (no blast), so the
@@ -81,10 +103,9 @@ local Config = {
 		length = 16,
 		beam = 6,
 		speeds = {
-			slow = { speed = 120, noise = 3 },
-			fast = { speed = 200, noise = 5 },
+			slow = { speed = 120, noise = 3, maxRun = 540 },
+			fast = { speed = 200, noise = 5, maxRun = 160 },
 		},
-		maxFuse = 900,
 		defaultFuse = 300,
 		armDistance = 64,
 		blastRadius = 20,
@@ -102,10 +123,10 @@ local Config = {
 	-- pings (at most once per `staleTicks`). A tracked contact draws a course
 	-- at `closeSpeed` towards where it will be `leadTicks` ahead (a fitted
 	-- course is run on at most `extrapolateTicks` past its newest sample),
-	-- and a shot (`torpedoSpeed`, first loaded tube, at
-	-- turn tick 1) when the newest sample is at most `fireMaxAge` old and the
-	-- intercept is within `fireRange` and at least `armMargin` px beyond the
-	-- arming distance. A noise contact at the launch level or louder makes it
+	-- and a shot (first loaded tube, at turn tick 1) when the newest sample
+	-- is at most `fireMaxAge` old and the intercept is at least `armMargin`
+	-- px beyond the arming distance: fast if it is within the fast max run,
+	-- else slow if within the slow max run, else it holds fire. A noise contact at the launch level or louder makes it
 	-- evade at `evadeSpeed`, away from the launch and diving or climbing hard,
 	-- for `evadeTicks`, then level out at `quietSpeed`. A first course (the
 	-- standing one too) that would run the sub into rock within `steerTicks`
@@ -113,6 +134,7 @@ local Config = {
 	-- whichever stays clear longest; if what it keeps would run aground
 	-- before the turn ends, it stops `groundMargin` ticks short of the rock.
 	-- Lying stopped with nothing to hunt, it searches at `quietSpeed`.
+	-- `closeSpeed`, `evadeSpeed` and `quietSpeed` name `speeds` anchors.
 	ai = {
 		selfRadius = 8,
 		ownTorpedoRadius = 4,
@@ -123,9 +145,7 @@ local Config = {
 		leadTicks = 120,
 		extrapolateTicks = 240,
 		closeSpeed = "half",
-		torpedoSpeed = "fast",
 		fireMaxAge = 480,
-		fireRange = 110,
 		armMargin = 16,
 		evadeSpeed = "full",
 		evadeTicks = 240,

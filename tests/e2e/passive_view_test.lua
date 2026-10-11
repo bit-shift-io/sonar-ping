@@ -56,7 +56,7 @@ test("a stopped enemy is silent in the player's view", function()
 		seabed = Trench.seabed,
 		subs = {
 			player = Trench.subs.player,
-			enemy = { x = 1160, y = 400, order = { kind = "course", heading = "west", dive = 0, speed = "stop" } },
+			enemy = { x = 1160, y = 400, order = { kind = "course", heading = "west", dive = 0, speed = 0 } },
 		},
 	}
 	local game = GameHarness.startMatch(level, { real = true })

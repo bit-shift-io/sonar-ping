@@ -1,4 +1,4 @@
--- A torpedo planned at the enemy shows its preview line and fuse marker
+-- A torpedo planned at the enemy shows its preview line, aim point and speed
 -- while planning; in the debug view the running torpedo's true path is
 -- drawn; when it sinks the enemy the match-end screen appears. Captures a
 -- frame of each for review.
@@ -14,7 +14,7 @@ local LEVEL = {
 	seabed = Trench.seabed,
 	subs = {
 		player = Trench.subs.player,
-		enemy = { x = 760, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = "stop" } },
+		enemy = { x = 460, y = 300, order = { kind = "course", heading = "west", dive = 0, speed = Config.speeds.stop.speed } },
 	},
 }
 
@@ -59,13 +59,12 @@ test("the torpedo preview, its true path in debug, and the match-end screen are 
 	local state = game.state
 
 	click(game, centre(state:tubeButton(1)))
-	click(game, centre(state:torpedoSpeedButton("fast")))
-	local fx, fy = state:fuseMarkerPosition()
-	drag(game, fx, fy, 820, 300) -- past the enemy: it strikes the hull first
-	fx, fy = state:fuseMarkerPosition()
+	drag(game, 700, 500, 520, 300) -- past the enemy: it strikes the hull first
+	local ax, ay = state:aimPoint()
+	assertEqual("fast", state.torpedo.order.speed)
 	local plan = render(game)
 	Capture.capture("torpedo_plan")
-	assertTrue(redAround(plan, fx, fy, 8) > 0.9, "the fuse marker is drawn at the fuse point")
+	assertTrue(redAround(plan, ax + 8, ay, 2) > 0.9, "the aim point is drawn")
 	local preview = state:torpedoPreview()
 	local mid = preview.points[math.floor(preview.endTick / 2)]
 	assertTrue(redAround(plan, mid.x, mid.y, 2) > 0.5, "the preview line is drawn")
@@ -86,4 +85,43 @@ test("the torpedo preview, its true path in debug, and the match-end screen are 
 		best = math.max(best, g)
 	end
 	assertTrue(best > 0.5, "the match-end box is drawn")
+end)
+
+-- Counts pixels in the box whose colour is mostly `channel` ("g" or "b").
+local function dominantPixels(data, x0, y0, x1, y1, channel)
+	local n = 0
+	for y = y0, y1 do
+		for x = x0, x1 do
+			local r, g, b = data:getPixel(x, y)
+			if channel == "b" and b > 0.4 and b > g + 0.15 and b > r + 0.3 then
+				n = n + 1
+			elseif channel == "g" and g > 0.4 and g > b + 0.3 and g > r + 0.3 then
+				n = n + 1
+			end
+		end
+	end
+	return n
+end
+
+test("a torpedo's track draws blue beside a moving sub's green track", function()
+	local level = {
+		seabed = Trench.seabed,
+		subs = {
+			player = Trench.subs.player,
+			enemy = { x = 760, y = 300, order = { kind = "course", heading = "east", dive = 0, speed = Config.speeds.full.speed } },
+		},
+	}
+	local game = GameHarness.startMatch(level, { real = true })
+	local state = game.state
+
+	click(game, centre(state:tubeButton(1)))
+	drag(game, 700, 500, 500, 300)
+	click(game, centre(state:executeButton()))
+	FrameStepper.step(game, 150)
+
+	local frame = render(game)
+	Capture.capture("torpedo_blue_beside_sub_green")
+	local w, h = frame:getDimensions()
+	assertTrue(dominantPixels(frame, 0, 0, w - 1, h - 1, "b") > 0, "the torpedo's contacts draw blue")
+	assertTrue(dominantPixels(frame, 0, 0, w - 1, h - 1, "g") > 0, "the sub's contacts draw green")
 end)
