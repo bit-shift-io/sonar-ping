@@ -1,4 +1,4 @@
-Status: pending
+Status: done
 Complexity: high
 
 # Torpedoes, sinking and match end

@@ -1,4 +1,4 @@
-Status: pending
+Status: done
 Complexity: medium
 
 # Subs move under orders; debug view shows true state

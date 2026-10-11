@@ -1,0 +1,8 @@
+.DS_Store
+bin/*
+!bin/.gitkeep
+tests/screenshots/
+*.*~
+/*.png
+tmp/
+.scratch/

@@ -1,4 +1,4 @@
-Status: pending
+Status: done
 Complexity: high
 
 # Plan/execute turn loop with course planning

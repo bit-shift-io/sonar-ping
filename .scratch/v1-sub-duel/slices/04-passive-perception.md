@@ -1,4 +1,4 @@
-Status: pending
+Status: done
 Complexity: high
 
 # Passive perception per observer
